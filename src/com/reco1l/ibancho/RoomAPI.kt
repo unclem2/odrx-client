@@ -148,7 +148,7 @@ object RoomAPI {
 
     private val initialConnection = Listener {
 
-        val json = it[0] as JSONObject
+        val json = it[1] as JSONObject
 
         Multiplayer.log("RECEIVED: initialConnection\n${json.toString(3)}")
 

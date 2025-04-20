@@ -516,7 +516,6 @@ public class ScoringScene {
 
             if (hasUnrankedMod
                 || Config.isRemoveSliderLock()
-                || ModMenu.getInstance().isCustomAR()
                 || ModMenu.getInstance().isCustomOD()
                 || ModMenu.getInstance().isCustomCS()
                 || ModMenu.getInstance().isCustomHP()
