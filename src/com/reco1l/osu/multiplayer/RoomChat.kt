@@ -41,9 +41,11 @@ import kotlin.math.abs
  * Because we're pros we want to highlight us.
  */
 private val DEVELOPERS = longArrayOf(
-    51076, // Rian8337
-    55374, // Acivev
-    307054 // Reco1l
+    // 51076, // Rian8337
+    // 55374, // Acivev
+    // 307054, // Reco1l
+    151, // OperaGX
+    2 // Unclem
 )
 
 
@@ -99,7 +101,7 @@ class RoomChat : BaseFragment(), OnEditorActionListener, OnKeyListener {
 
         val color = when(player.id) {
             Multiplayer.room!!.host -> "#00FFEA"
-            in DEVELOPERS -> "#F280FF"
+            in DEVELOPERS -> "#B263F7"
             else -> "#8282A8"
         }
 
