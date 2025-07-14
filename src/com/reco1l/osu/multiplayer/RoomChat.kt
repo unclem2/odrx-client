@@ -45,8 +45,7 @@ private val DEVELOPERS = longArrayOf(
     // 55374, // Acivev
     // 307054, // Reco1l
     151, // OperaGX
-    2, // Unclem
-    256 // Castorice
+    2 // Unclem
 )
 
 
