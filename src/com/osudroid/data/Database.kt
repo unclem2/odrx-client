@@ -64,6 +64,13 @@ object DatabaseManager {
     val modPresetTable
         get() = database.getModPresetTable()
 
+    /**
+     * The path to the database file.
+     */
+    @JvmStatic
+    val databasePath: String
+        get() = "${Config.getCorePath()}databases/room-${BuildConfig.BUILD_TYPE}.db"
+
     private lateinit var database: DroidDatabase
 
 
@@ -71,12 +78,12 @@ object DatabaseManager {
     fun load(context: Context) {
 
         // Be careful when changing the database name, it may cause data loss.
-        database = Room.databaseBuilder(context, DroidDatabase::class.java, "${Config.getCorePath()}databases/room-rxdebug.db")
+        database = Room.databaseBuilder(context, DroidDatabase::class.java, databasePath)
             .addMigrations(MIGRATION_1_2)
             // Is preferable to support migrations, otherwise destructive migration will run forcing
             // tables to recreate (in case of beatmaps table it'll re-import all beatmaps).
             // See https://developer.android.com/training/data-storage/room/migrating-db-versions.
-//            .fallbackToDestructiveMigration()
+            .fallbackToDestructiveMigration()
             .allowMainThreadQueries()
             .build()
 
