@@ -85,6 +85,7 @@ class ModDifficultyAdjust @JvmOverloads constructor(
     override val acronym = "DA"
     override val description = "Override a beatmap's difficulty settings."
     override val type = ModType.Conversion
+    override val isRanked = true
     override val requiresConfiguration = true
 
     override fun isCompatibleWith(other: Mod): Boolean {

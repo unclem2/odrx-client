@@ -30,11 +30,11 @@ import ru.nsu.ccfit.zuev.osu.online.PostBuilder.RequestException;
 import ru.nsu.ccfit.zuev.osu.scoring.BeatmapLeaderboardScoringMode;
 
 public class OnlineManager {
-    public static final String hostname = "osudroid.moe";
+    public static final String hostname = "v4rx.me";
     public static final String endpoint = "https://" + hostname + "/api/";
     public static final String updateEndpoint = endpoint + "update.php?lang=";
     public static final String defaultAvatarURL = "https://" + hostname + "/user/avatar/0.png";
-    private static final String onlineVersion = "49";
+    private static final String onlineVersion = "6";
 
     public static final OkHttpClient client = new OkHttpClient();
 
@@ -253,7 +253,7 @@ public class OnlineManager {
     }
 
     public RankedStatus getBeatmapStatus(String md5) throws OnlineManagerException {
-        var builder = new Request.Builder().url("https://osu.direct/api/v2/md5/" + md5);
+        var builder = new Request.Builder().url("https://v4rx.me/api/v2/md5/" + md5);
         var request = builder.build();
 
         try (var response = client.newCall(request).execute()) {

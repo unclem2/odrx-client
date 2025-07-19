@@ -125,7 +125,7 @@ import ru.nsu.ccfit.zuev.skins.OsuSkin;
 import ru.nsu.ccfit.zuev.skins.BeatmapSkinManager;
 
 public class GameScene implements GameObjectListener, IOnSceneTouchListener {
-    public static final int CursorCount = 3;
+    public static final int CursorCount = 1;
     private final Engine engine;
     private Cursor[] cursors = new Cursor[CursorCount];
     private boolean[] cursorIIsDown = new boolean[CursorCount];
@@ -809,7 +809,6 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
         stat.migrateLegacyMods(parsedBeatmap.getDifficulty());
         stat.calculateModScoreMultiplier(parsedBeatmap.getDifficulty());
         stat.canFail = !stat.getMod().contains(ModNoFail.class)
-                && !stat.getMod().contains(ModRelax.class)
                 && !stat.getMod().contains(ModAutopilot.class)
                 && !stat.getMod().contains(ModAutoplay.class);
 
