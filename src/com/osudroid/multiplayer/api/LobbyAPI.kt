@@ -23,7 +23,7 @@ object LobbyAPI {
     /**
      * The invite link host.
      */
-    const val INVITE_HOST = "https://odmp"
+    const val INVITE_HOST = "https://tournament.odmp"
 
 
     /**

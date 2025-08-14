@@ -37,14 +37,6 @@
             android:name="com.google.firebase.messaging.default_notification_color"
             android:resource="@color/colorAccent"/>
 
-        <service
-            android:name="ru.nsu.ccfit.zuev.push.PushNotificationService"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="com.google.firebase.MESSAGING_EVENT"/>
-            </intent-filter>
-        </service>
-
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileProvider"
@@ -120,7 +112,7 @@
                 <category android:name="android.intent.category.BROWSABLE" />
 
                 <!--We keep the scheme, so it can be treated as URL in other apps such as Discord-->
-                <data android:scheme="https" android:host="odmp"/>
+                <data android:scheme="https" android:host="tournament.odmp"/>
             </intent-filter>
 
             <intent-filter>

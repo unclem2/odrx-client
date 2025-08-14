@@ -37,6 +37,7 @@ public class GameHelper {
     private static ModApproachDifferent approachDifferent;
     private static boolean isKiai = false;
     private static ModAutoplay autoplay;
+    private static ModPrecise precise;
     private static double beatLength = 0;
     private static double currentBeatTime = 0;
     private static boolean samplesMatchPlaybackRate;
@@ -398,6 +399,18 @@ public class GameHelper {
 
     public static void setAutoplay(final ModAutoplay autoplay) {
         GameHelper.autoplay = autoplay;
+    }
+
+    public static ModPrecise getPrecise() {
+        return precise;
+    }
+
+    public static boolean isPrecise() {
+        return precise != null;
+    }
+
+    public static void setPrecise(final ModPrecise precise) {
+        GameHelper.precise = precise;
     }
 
     public static float Round(double value, int digits) throws NumberFormatException {

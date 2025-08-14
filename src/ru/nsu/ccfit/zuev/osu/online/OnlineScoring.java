@@ -170,16 +170,16 @@ public class OnlineScoring {
                         success = false;
                     }
 
-                    if (OnlineManager.getInstance().getFailMessage().length() > 0) {
-                        ToastLogger.showText(OnlineManager.getInstance().getFailMessage(), true);
-                        if (OnlineManager.getInstance().getFailMessage().equals("Invalid record data"))
-                            i = attemptCount;
-                    } else if (success) {
-                        updatePanels();
-                        OnlineManager mgr = OnlineManager.getInstance();
-                        panel.show(mgr.getMapRank(), mgr.getRank(), mgr.getScore(), mgr.getAccuracy(), mgr.getPP());
-                        break;
-                    }
+                        if (OnlineManager.getInstance().getFailMessage().length() > 0) {
+                            ToastLogger.showText(OnlineManager.getInstance().getFailMessage(), true);
+                            if (OnlineManager.getInstance().getFailMessage().equals("Invalid record data"))
+                                i = attemptCount;
+                        } else if (success) {
+                            updatePanels();
+                            OnlineManager mgr = OnlineManager.getInstance();
+                            panel.show(mgr.getRank(), mgr.getScore(), mgr.getAccuracy(), mgr.getPP());
+                            break;
+                        }
 
                     try {
                         Thread.sleep(5000);

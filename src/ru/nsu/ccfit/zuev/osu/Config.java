@@ -12,7 +12,6 @@ import androidx.annotation.NonNull;
 import androidx.preference.PreferenceManager;
 
 import com.edlplan.framework.math.FMath;
-import com.google.firebase.messaging.FirebaseMessaging;
 
 import java.io.File;
 import java.util.HashMap;
@@ -29,7 +28,6 @@ import net.margaritov.preference.colorpicker.ColorPickerPreference;
 import org.anddev.andengine.util.Debug;
 
 import ru.nsu.ccfit.zuev.osu.helper.FileUtils;
-import ru.nsu.ccfit.zuev.osu.scoring.BeatmapLeaderboardScoringMode;
 
 public class Config {
     private static String corePath,
@@ -71,7 +69,6 @@ public class Config {
         displayScoreStatistics,
         hideReplayMarquee,
         hideInGameUI,
-        receiveAnnouncements,
         enableStoryboard,
         safeBeatmapBg,
         useNightcoreOnMultiplayer,
@@ -222,19 +219,12 @@ public class Config {
         displayScoreStatistics = prefs.getBoolean("displayScoreStatistics", false);
         hideReplayMarquee = prefs.getBoolean("hideReplayMarquee", false);
         hideInGameUI = prefs.getBoolean("hideInGameUI", false);
-        receiveAnnouncements = prefs.getBoolean("receiveAnnouncements", true);
         safeBeatmapBg = prefs.getBoolean("safebeatmapbg", false);
         shiftPitchInRateChange = prefs.getBoolean("shiftPitchInRateChange", false);
 
         // Multiplayer
         useNightcoreOnMultiplayer = prefs.getBoolean("player_nightcore", false);
         submitScoreOnMultiplayer = prefs.getBoolean("player_submitScore", true);
-
-        if(receiveAnnouncements) {
-            FirebaseMessaging.getInstance().subscribeToTopic("announcements");
-        }else {
-            FirebaseMessaging.getInstance().unsubscribeFromTopic("announcements"); 
-        }
 
         //Init
         onlineDeviceID = prefs.getString("installID", null);
@@ -498,19 +488,11 @@ public class Config {
     }
 
     public static boolean isStayOnline() {
-        return stayOnline && BuildType.hasOnlineAccess();
+        return stayOnline;
     }
 
     public static void setStayOnline(boolean stayOnline) {
         Config.stayOnline = stayOnline;
-    }
-
-    public static BeatmapLeaderboardScoringMode getBeatmapLeaderboardScoringMode() {
-        return BeatmapLeaderboardScoringMode.parse(Integer.parseInt(getString("beatmapLeaderboardScoringMode", "0")));
-    }
-
-    public static void setBeatmapLeaderboardScoringMode(BeatmapLeaderboardScoringMode beatmapLeaderboardScoringMode) {
-        setString("beatmapLeaderboardScoringMode", String.valueOf(beatmapLeaderboardScoringMode.ordinal()));
     }
 
     public static boolean getLoadAvatar() {
@@ -671,14 +653,6 @@ public class Config {
 
     public static void setHideInGameUI(boolean hideInGameUI) {
         Config.hideInGameUI = hideInGameUI;
-    }
-
-    public static boolean isReceiveAnnouncements() {
-        return receiveAnnouncements;
-    }
-
-    public static void setReceiveAnnouncements(boolean receiveAnnouncements) {
-        Config.receiveAnnouncements = receiveAnnouncements;
     }
 
     public static boolean isSafeBeatmapBg() {
