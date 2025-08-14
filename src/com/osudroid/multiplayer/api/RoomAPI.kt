@@ -140,6 +140,12 @@ object RoomAPI {
         roomEventListener?.onRoomMatchPlay()
     }
 
+    private val abortBeatmap = Listener {
+
+        Multiplayer.log("RECEIVED: abortBeatmap")
+        roomEventListener?.onRoomMatchAbort()
+    }
+
     private val chatMessage = Listener {
 
         //Multiplayer.log("RECEIVED: chatMessage -> ${it.contentToString()}")
@@ -199,6 +205,7 @@ object RoomAPI {
             on("roomNameChanged", roomNameChanged)
             on("maxPlayersChanged", maxPlayersChanged)
             on("playBeatmap", playBeatmap)
+            on("abortBeatmap", abortBeatmap)
             on("chatMessage", chatMessage)
             on("liveScoreData", liveScoreData)
             on("playerJoined", playerJoined)
@@ -293,6 +300,7 @@ object RoomAPI {
         val auth = mutableMapOf<String, String>()
         val sign = SecurityUtils.signRequest("${userId}_$username")
 
+        auth["type"] = "0"
         auth["uid"] = userId.toString()
         auth["username"] = username
         auth["version"] = API_VERSION.toString()
@@ -313,6 +321,7 @@ object RoomAPI {
 
         socket = if (BuildSettings.MOCK_MULTIPLAYER) MockSocket(userId, username) else IO.socket(url, IO.Options().also {
             it.auth = auth
+            it.path = "/api/tournament/socket.io"
 
             // Explicitly not allow the socket to reconnect as we are using our own
             // reconnection system (the socket.io Java client does not support connection
@@ -528,6 +537,20 @@ object RoomAPI {
 
         // We don't indent here to avoid spam
         Multiplayer.log("EMITTED: liveScoreData -> $json")
+    }
+
+    /**
+     * Sends spectator data.
+     */
+    @JvmStatic
+    fun submitSpectatorData(data: ByteArray): Boolean {
+        socket?.emit("spectatorData", data) ?: run {
+            Multiplayer.log("WARNING: Tried to emit event 'spectatorData' while socket is null.");
+            return false
+        }
+
+        Multiplayer.log("EMITTED: spectatorData")
+        return true
     }
 
     /**

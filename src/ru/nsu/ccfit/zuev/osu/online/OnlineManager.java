@@ -2,9 +2,6 @@ package ru.nsu.ccfit.zuev.osu.online;
 
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
-import android.os.Bundle;
-
-import com.google.firebase.analytics.FirebaseAnalytics;
 
 import com.osudroid.data.BeatmapInfo;
 import okhttp3.MediaType;
@@ -19,15 +16,14 @@ import java.io.IOException;
 import java.util.ArrayList;
 
 import ru.nsu.ccfit.zuev.osu.Config;
-import ru.nsu.ccfit.zuev.osu.GlobalManager;
 import ru.nsu.ccfit.zuev.osu.ResourceManager;
-import ru.nsu.ccfit.zuev.osu.helper.FileUtils;
 import org.json.JSONException;
 import org.json.JSONObject;
 import ru.nsu.ccfit.zuev.osu.*;
+import ru.nsu.ccfit.zuev.osu.helper.FileUtils;
 import ru.nsu.ccfit.zuev.osu.helper.MD5Calculator;
 import ru.nsu.ccfit.zuev.osu.online.PostBuilder.RequestException;
-import ru.nsu.ccfit.zuev.osu.scoring.BeatmapLeaderboardScoringMode;
+import ru.nsu.ccfit.zuev.osu.scoring.StatisticV2;
 
 public class OnlineManager {
     public static final String hostname = "v4rx.me";
@@ -42,7 +38,7 @@ public class OnlineManager {
     private String failMessage = "";
 
     private boolean stayOnline = true;
-    private String ssid = "";
+    private String sessionId = "";
     private long userId = -1L;
 
     private String username = "";
@@ -53,7 +49,6 @@ public class OnlineManager {
     private float accuracy = 0;
     private float pp = 0;
     private String avatarURL = "";
-    private int mapRank;
 
     public static OnlineManager getInstance() {
         if (instance == null) {
@@ -62,11 +57,8 @@ public class OnlineManager {
         return instance;
     }
 
-    public static String getReplayURL(int playID) {
-        return switch (Config.getBeatmapLeaderboardScoringMode()) {
-            case SCORE -> endpoint + "upload/" + playID + ".odr";
-            case PP -> endpoint + "bestpp/" + playID + ".odr";
-        };
+    public static String getReplayURL(int userID, String hash) {
+        return endpoint + "getReplay?userID=" + userID + "&hash=" + hash;
     }
 
     public void init() {
@@ -135,7 +127,7 @@ public class OnlineManager {
                 ));
         post.addParam("version", onlineVersion);
 
-        ArrayList<String> response = sendRequest(post, endpoint + "login.php");
+        ArrayList<String> response = sendRequest(post, endpoint + "login");
 
         if (response == null) {
             return false;
@@ -151,7 +143,7 @@ public class OnlineManager {
             return false;
         }
         userId = Long.parseLong(params[0]);
-        ssid = params[1];
+        sessionId = params[1];
         rank = Integer.parseInt(params[2]);
         score = Long.parseLong(params[3]);
         pp = Math.round(Float.parseFloat(params[4]));
@@ -163,18 +155,6 @@ public class OnlineManager {
             avatarURL = "";
         }
 
-        Bundle bParams = new Bundle();
-        bParams.putString(FirebaseAnalytics.Param.METHOD, "ingame");
-        GlobalManager.getInstance().getMainActivity().getAnalytics().logEvent(FirebaseAnalytics.Event.LOGIN, bParams);
-
-        return true;
-    }
-
-    boolean tryToLogIn() throws OnlineManagerException {
-        if (logIn(username, password) == false) {
-            stayOnline = false;
-            return false;
-        }
         return true;
     }
 
@@ -190,10 +170,10 @@ public class OnlineManager {
 
         var post = new FormDataPostBuilder();
         post.addParam("userID", String.valueOf(userId));
-        post.addParam("ssid", ssid);
-        post.addParam("filename", beatmap.getFullBeatmapName().trim());
+        post.addParam("sessionId", sessionId);
         post.addParam("hash", beatmap.getMD5());
         post.addParam("data", scoreData);
+        post.addParam("version", onlineVersion);
 
         MediaType replayMime = MediaType.parse("application/octet-stream");
         RequestBody replayFileBody = RequestBody.create(replayFile, replayMime);
@@ -201,7 +181,7 @@ public class OnlineManager {
         post.addParam("replayFile", replayFile.getName(), replayFileBody);
         post.addParam("replayFileChecksum", FileUtils.getSHA256Checksum(replayFile));
 
-        ArrayList<String> response = sendRequest(post, endpoint + "submit.php");
+        ArrayList<String> response = sendRequest(post, endpoint + "submit");
 
         if (response == null) {
             return false;
@@ -224,24 +204,27 @@ public class OnlineManager {
         rank = Integer.parseInt(resp[0]);
         score = Long.parseLong(resp[1]);
         accuracy = Float.parseFloat(resp[2]);
-        mapRank = Integer.parseInt(resp[3]);
-        pp = Math.round(Float.parseFloat(resp[4]));
+        pp = Math.round(Float.parseFloat(resp[3]));
 
         return true;
+    }
+
+    public ArrayList<String> sendPlaySettings(StatisticV2 stat, final String hash) throws OnlineManagerException {
+        PostBuilder post = new URLEncodedPostBuilder();
+        post.addParam("userID", String.valueOf(userId));
+        post.addParam("sessionId", sessionId);
+        post.addParam("mods", stat.getMod().serializeMods().toString());
+        post.addParam("hash", hash);
+        post.addParam("isSliderLock", Config.isRemoveSliderLock() ? "1" : "0");
+
+        return sendRequest(post, endpoint + "verifyPlaySettings");
     }
 
     public ArrayList<String> getTop(final String hash) throws OnlineManagerException {
         PostBuilder post = new URLEncodedPostBuilder();
         post.addParam("hash", hash);
-        post.addParam("uid", String.valueOf(userId));
 
-        if (Config.getBeatmapLeaderboardScoringMode() == BeatmapLeaderboardScoringMode.PP) {
-            post.addParam("type", "pp");
-        } else {
-            post.addParam("type", "score");
-        }
-
-        ArrayList<String> response = sendRequest(post, endpoint + "getrank.php");
+        ArrayList<String> response = sendRequest(post, endpoint + "getLeaderboard");
 
         if (response == null) {
             return new ArrayList<>();
@@ -338,11 +321,12 @@ public class OnlineManager {
         }
     }
 
-    public String getScorePack(int playid) throws OnlineManagerException {
+    public String getScorePack(int userId, String hash) throws OnlineManagerException {
         PostBuilder post = new URLEncodedPostBuilder();
-        post.addParam("playID", String.valueOf(playid));
+        post.addParam("userID", String.valueOf(userId));
+        post.addParam("hash", hash);
 
-        ArrayList<String> response = sendRequest(post, endpoint + "gettop.php");
+        ArrayList<String> response = sendRequest(post, endpoint + "getScore");
 
         if (response == null || response.size() < 2) {
             return "";
@@ -383,6 +367,10 @@ public class OnlineManager {
         return userId;
     }
 
+    public String getSessionId() {
+        return sessionId;
+    }
+
     public String getPassword() {
         return password;
     }
@@ -397,10 +385,6 @@ public class OnlineManager {
 
     public void setStayOnline(boolean stayOnline) {
         this.stayOnline = stayOnline;
-    }
-
-    public int getMapRank() {
-        return mapRank;
     }
 
     public static class OnlineManagerException extends Exception {

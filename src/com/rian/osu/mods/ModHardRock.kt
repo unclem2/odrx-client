@@ -17,7 +17,7 @@ class ModHardRock : Mod(), IModApplicableToDifficulty, IModApplicableToHitObject
     override val type = ModType.DifficultyIncrease
     override val isRanked = true
     override val incompatibleMods = super.incompatibleMods + arrayOf(ModEasy::class, ModMirror::class)
-    override val scoreMultiplier = 1.06f
+    override val scoreMultiplier = 1.04f
 
     override fun isCompatibleWith(other: Mod): Boolean {
         if (other is ModDifficultyAdjust) {

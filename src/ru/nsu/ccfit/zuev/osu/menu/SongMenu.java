@@ -78,7 +78,6 @@ import ru.nsu.ccfit.zuev.osu.online.OnlineManager;
 import ru.nsu.ccfit.zuev.osu.online.OnlineManager.OnlineManagerException;
 import ru.nsu.ccfit.zuev.osu.online.OnlinePanel;
 import ru.nsu.ccfit.zuev.osu.online.OnlineScoring;
-import ru.nsu.ccfit.zuev.osu.scoring.BeatmapLeaderboardScoringMode;
 import ru.nsu.ccfit.zuev.osu.scoring.ScoringScene;
 import ru.nsu.ccfit.zuev.osu.scoring.StatisticV2;
 import ru.nsu.ccfit.zuev.skins.OsuSkin;
@@ -711,15 +710,10 @@ public class SongMenu implements IUpdateHandler, MenuItemListener,
 
     public void toggleScoringSwitcher() {
         if (board.isShowOnlineScores()) {
-            switch (Config.getBeatmapLeaderboardScoringMode()) {
-                case SCORE -> Config.setBeatmapLeaderboardScoringMode(BeatmapLeaderboardScoringMode.PP);
-                case PP -> board.setShowOnlineScores(false);
-            }
-
+            board.setShowOnlineScores(false);
             board.init(selectedBeatmap);
         } else if (OnlineManager.getInstance().isStayOnline()) {
             board.setShowOnlineScores(true);
-            Config.setBeatmapLeaderboardScoringMode(BeatmapLeaderboardScoringMode.SCORE);
             board.init(selectedBeatmap);
         }
 
@@ -1194,7 +1188,7 @@ public class SongMenu implements IUpdateHandler, MenuItemListener,
         }
     }
 
-    public void openScore(final int id, boolean showOnline, final String playerName) {
+    public void openScore(final int id, boolean showOnline, final String playerName, final String hash) {
         var difficulty = selectedBeatmap.getBeatmapDifficulty();
 
         if (showOnline) {
@@ -1206,7 +1200,7 @@ public class SongMenu implements IUpdateHandler, MenuItemListener,
 
             Execution.async(() -> {
                 try {
-                    String scorePack = OnlineManager.getInstance().getScorePack(id);
+                    String scorePack = OnlineManager.getInstance().getScorePack(id, hash);
                     String[] params = scorePack.split("\\s+");
 
                     if (params.length < 11) return;
@@ -1214,7 +1208,7 @@ public class SongMenu implements IUpdateHandler, MenuItemListener,
                     StatisticV2 stat = new StatisticV2(params, difficulty);
 
                     stat.setPlayerName(playerName);
-                    scoreScene.load(stat, null, null, OnlineManager.getReplayURL(id), null, selectedBeatmap);
+                    scoreScene.load(stat, null, null, OnlineManager.getReplayURL(id, hash), null, selectedBeatmap);
                     engine.setScene(scoreScene.getScene());
                 } catch (Exception e) {
                     Debug.e("Cannot load play info: " + e.getMessage(), e);
@@ -1651,12 +1645,7 @@ public class SongMenu implements IUpdateHandler, MenuItemListener,
             return;
         }
 
-        var textureName = "ranking_enabled_" + switch (Config.getBeatmapLeaderboardScoringMode()) {
-            case SCORE -> "score";
-            case PP -> "pp";
-        };
-
-        scoringSwitcher.setTextureRegion(ResourceManager.getInstance().getTexture(textureName));
+        scoringSwitcher.setTextureRegion(ResourceManager.getInstance().getTexture("ranking_enabled"));
 
         cancelMapStatusLoadingJob();
 
@@ -1686,7 +1675,7 @@ public class SongMenu implements IUpdateHandler, MenuItemListener,
                 JobKt.ensureActive(scope.getCoroutineContext());
 
                 if (scoringSwitcher != null) {
-                    scoringSwitcher.setTextureRegion(ResourceManager.getInstance().getTexture(textureName));
+                    scoringSwitcher.setTextureRegion(ResourceManager.getInstance().getTexture("ranking_enabled"));
                 }
             }
         });

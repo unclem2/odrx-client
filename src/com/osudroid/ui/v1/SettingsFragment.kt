@@ -269,11 +269,6 @@ class SettingsFragment : SettingsFragment() {
             true
         }
 
-        findPreference<Preference>("update")!!.setOnPreferenceClickListener {
-            UpdateManager.checkNewUpdates(false)
-            true
-        }
-
         findPreference<Preference>("backup")!!.setOnPreferenceClickListener {
             val success = ConfigBackup.exportPreferences()
 

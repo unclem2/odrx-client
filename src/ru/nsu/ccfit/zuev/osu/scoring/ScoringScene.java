@@ -478,7 +478,13 @@ public class ScoringScene {
                     );
                 };
 
-                ppinfo.append(String.format(Locale.ENGLISH, "%.2f★ | %.2f/%.2fdpp", difficultyAttributes.starRating, performanceAttributes.total, maxPerformanceAttributes.total));
+                ppinfo.append(String.format(
+                    Locale.ENGLISH,
+                    "%.2f★ | %.2f/%.2f" + (Config.getDifficultyAlgorithm() == DifficultyAlgorithm.droid ? "dpp" : "pp"),
+                    difficultyAttributes.starRating,
+                    performanceAttributes.total,
+                    maxPerformanceAttributes.total
+                ));
             }
 
             if (stat.getUnstableRate() > 0) {
@@ -543,7 +549,7 @@ public class ScoringScene {
 
             boolean hasUnrankedMod = SmartIterator.wrap(mods.values().iterator()).applyFilter(m -> !m.isRanked()).hasNext();
 
-            if (hasUnrankedMod || Config.isRemoveSliderLock()) {
+            if (hasUnrankedMod) {
                 return;
             }
 
