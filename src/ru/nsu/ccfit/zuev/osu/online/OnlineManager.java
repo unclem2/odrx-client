@@ -194,6 +194,7 @@ public class OnlineManager {
         post.addParam("filename", beatmap.getFullBeatmapName().trim());
         post.addParam("hash", beatmap.getMD5());
         post.addParam("data", scoreData);
+        post.addParam("version", onlineVersion);
 
         MediaType replayMime = MediaType.parse("application/octet-stream");
         RequestBody replayFileBody = RequestBody.create(replayFile, replayMime);
