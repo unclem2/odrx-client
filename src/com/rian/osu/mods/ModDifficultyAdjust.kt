@@ -86,6 +86,7 @@ class ModDifficultyAdjust @JvmOverloads constructor(
     override val description = "Override a beatmap's difficulty settings."
     override val type = ModType.Conversion
     override val requiresConfiguration = true
+    override val isRanked = true
 
     override val scoreMultiplier: Float
         get() {

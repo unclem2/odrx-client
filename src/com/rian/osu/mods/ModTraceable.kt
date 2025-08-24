@@ -13,7 +13,7 @@ class ModTraceable : ModWithVisibilityAdjustment() {
     override val type = ModType.DifficultyIncrease
     override val scoreMultiplier = 1.06f
     override val incompatibleMods = super.incompatibleMods + ModHidden::class
-
+    override val isRanked = true
     override fun isFirstAdjustableObject(hitObject: HitObject) = hitObject !is Spinner
     override fun deepCopy() = ModTraceable()
 }

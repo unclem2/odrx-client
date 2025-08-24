@@ -11,7 +11,7 @@ class ModSynesthesia : Mod() {
     override val description = "Colors hit objects based on the rhythm."
     override val type = ModType.Fun
     override val scoreMultiplier = 0.8f
-
+    override val isRanked = true
     override fun deepCopy() = ModSynesthesia()
 
     companion object {

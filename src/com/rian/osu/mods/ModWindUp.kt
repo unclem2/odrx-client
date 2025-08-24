@@ -13,7 +13,7 @@ class ModWindUp : ModTimeRamp() {
     override val acronym = "WU"
     override val description = "Can you keep up?"
     override val type = ModType.Fun
-
+    override val isRanked = true
     override var initialRate by object : FloatModSetting(
         name = "Initial rate",
         valueFormatter = { "${it.roundBy(2)}x" },

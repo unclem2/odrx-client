@@ -12,7 +12,7 @@ class ModNoFail : Mod() {
     override val scoreMultiplier = 0.5f
 
     override val incompatibleMods = super.incompatibleMods + arrayOf(
-        ModPerfect::class, ModSuddenDeath::class, ModAutopilot::class, ModRelax::class
+        ModPerfect::class, ModSuddenDeath::class, ModAutopilot::class
     )
 
     override fun deepCopy() = ModNoFail()

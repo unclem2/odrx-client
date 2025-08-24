@@ -14,7 +14,7 @@ class ModApproachDifferent : Mod() {
     override val description = "Never trust the approach circles..."
     override val type = ModType.Fun
     override val incompatibleMods = super.incompatibleMods + arrayOf(ModHidden::class, ModFreezeFrame::class)
-
+    override val isRanked = true
     override val isRelevant
         get() = scale != 3f || style != AnimationStyle.Linear
 

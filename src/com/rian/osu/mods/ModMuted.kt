@@ -14,7 +14,7 @@ class ModMuted : Mod() {
     override val acronym = "MU"
     override val description = "Can you still feel the rhythm without music?"
     override val type = ModType.Fun
-
+    override val isRanked = true
     /**
      * Increase volume as combo builds.
      */

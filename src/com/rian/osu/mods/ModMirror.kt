@@ -15,7 +15,7 @@ class ModMirror : Mod(), IModApplicableToHitObject {
     override val description = "Flip objects on the chosen axes."
     override val type = ModType.Conversion
     override val incompatibleMods = super.incompatibleMods + ModHardRock::class
-
+    override val isRanked = true
     /**
      * The axes along which to flip the [HitObject]s.
      */
