@@ -638,12 +638,8 @@ object RoomScene : Scene(), IRoomEventListener, IPlayerEventListener {
 
         (GlobalManager.getInstance().camera as SmoothCamera).apply {
             setZoomFactorDirect(1f)
-            if (Config.isShrinkPlayfieldDownwards()) {
-                setCenterDirect(Config.getRES_WIDTH() / 2f, Config.getRES_HEIGHT() / 2f)
-            }
+            setCenterDirect(Config.getRES_WIDTH() / 2f, Config.getRES_HEIGHT() / 2f)
         }
-
-        GlobalManager.getInstance().engine.camera.hud = null
 
         if (!isConnected) {
             back()
@@ -826,7 +822,7 @@ object RoomScene : Scene(), IRoomEventListener, IPlayerEventListener {
 
         updateThread {
             ModMenu.back(false)
-            ModMenu.updateModButtonEnabledState()
+            ModMenu.updateModButtonVisibility()
         }
 
         playerList!!.invalidate()
@@ -867,7 +863,7 @@ object RoomScene : Scene(), IRoomEventListener, IPlayerEventListener {
             ModMenu.back(false)
 
             if (wasFreeMod != settings.isFreeMod) {
-                ModMenu.updateModButtonEnabledState()
+                ModMenu.updateModButtonVisibility()
             }
         }
 

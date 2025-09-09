@@ -14,7 +14,6 @@ import com.osudroid.multiplayer.api.RoomAPI.setRoomMods
 import com.osudroid.multiplayer.api.data.RoomMods
 import com.osudroid.multiplayer.Multiplayer
 import com.osudroid.multiplayer.RoomScene
-import com.osudroid.multiplayer.api.data.WinCondition
 import com.osudroid.ui.OsuColors
 import com.osudroid.utils.updateThread
 import com.reco1l.andengine.ui.UITextButton
@@ -32,11 +31,11 @@ import com.rian.osu.utils.ModUtils
 import kotlinx.coroutines.*
 import ru.nsu.ccfit.zuev.osu.*
 import ru.nsu.ccfit.zuev.osu.DifficultyAlgorithm.*
-import ru.nsu.ccfit.zuev.osu.game.*
 import ru.nsu.ccfit.zuev.osu.helper.*
 import java.util.LinkedList
 import java.util.concurrent.CancellationException
 import kotlin.math.*
+import kotlin.reflect.KClass
 
 object ModMenu : UIScene() {
 
@@ -295,7 +294,7 @@ object ModMenu : UIScene() {
                 return@scope
             }
 
-            modToggles.map { it.mod }.filterIsInstance<IModRequiresOriginalBeatmap>().fastForEach { mod ->
+            enabledMods.values.filterIsInstance<IModRequiresOriginalBeatmap>().fastForEach { mod ->
                 ensureActive()
                 mod.applyFromBeatmap(beatmap)
             }
@@ -352,7 +351,7 @@ object ModMenu : UIScene() {
             }
 
             songMenu.changeDimensionInfo(selectedBeatmap)
-            songMenu.setStarsDisplay(GameHelper.Round(attributes.starRating, 2))
+            songMenu.setStarsDisplay(attributes.starRating.toFloat())
         }
     }
 
@@ -372,7 +371,7 @@ object ModMenu : UIScene() {
         modPresetsSection.isVisible = !Multiplayer.isMultiplayer
 
         // Ensure mods that can be enabled by the user are displayed.
-        updateModButtonEnabledState()
+        updateModButtonVisibility()
 
         // Only parsing to update mod's specific settings defaults, specially those which rely on the original beatmap data.
         parseBeatmap()
@@ -449,25 +448,32 @@ object ModMenu : UIScene() {
             removeMod(ModScoreV2())
         }
 
-        updateModButtonEnabledState()
+        updateModButtonVisibility()
     }
 
-    fun updateModButtonEnabledState() {
-        modToggles.fastForEach { it.updateEnabledState() }
+    fun updateModButtonVisibility() {
+        modToggles.fastForEach {
+            it.updateVisibility()
+            it.applyCompatibilityState()
+        }
     }
 
     fun clear() {
         cancelCalculationJob()
 
         val room = Multiplayer.room
+        val isHost = Multiplayer.isRoomHost
 
         enabledMods.toList().fastForEach {
-            // We do not want to remove mods that are used for win conditions in multiplayer.
-            if (room != null && room.winCondition == WinCondition.ScoreV2 && it.second is ModScoreV2) {
+            val mod = it.second
+
+            // For non-host in multiplayer, we want to keep mods that are not allowed to be selected by the player
+            // since only the host can change those mods.
+            if (room != null && !isHost && room.gameplaySettings.isFreeMod && !mod.isValidForMultiplayerAsFreeMod) {
                 return@fastForEach
             }
 
-            removeMod(it.second)
+            removeMod(mod::class)
         }
     }
 
@@ -491,8 +497,8 @@ object ModMenu : UIScene() {
     }
 
     private fun onModsChanged() = synchronized(modChangeQueue) {
-
-        val isRanked = enabledMods.isEmpty() || enabledMods.none { !it.value.isRanked }
+        val enabledMods = enabledMods.values.toList()
+        val isRanked = enabledMods.isEmpty() || enabledMods.none { !it.isRanked }
 
         rankedBadge.apply {
             text = if (isRanked) "Ranked" else "Unranked"
@@ -502,6 +508,11 @@ object ModMenu : UIScene() {
 
             background!!.clearEntityModifiers()
             background!!.colorTo(if (isRanked) Color4(0xFF83DF6B) else Theme.current.accentColor * 0.15f, 0.1f)
+        }
+
+        modToggles.fastForEach {
+            it.hasIncompatibility =
+                if (!it.isSelected) enabledMods.any { m -> !it.mod.isCompatibleWith(m) } else false
         }
 
         scoreMultiplierBadge.updateStatisticBadge(
@@ -531,7 +542,11 @@ object ModMenu : UIScene() {
         modToggles.fastForEach { button ->
 
             val wasSelected = button.isSelected
-            button.isSelected = button.mod in enabledMods
+            button.isSelected = button.mod::class in enabledMods
+
+            if (button.mod::class == mod::class) {
+                button.mod = mod
+            }
 
             // Handle incompatible mods with the selected mod.
             if (wasSelected && !button.isSelected) {
@@ -543,20 +558,23 @@ object ModMenu : UIScene() {
         queueModChange(mod)
     }
 
-    fun removeMod(mod: Mod) {
+    fun removeMod(mod: Mod) = removeMod(mod::class)
 
-        if (mod !in enabledMods) {
+    fun removeMod(modClass: KClass<out Mod>) {
+
+        if (modClass !in enabledMods) {
             return
         }
-        enabledMods.remove(mod)
 
-        modToggles.find { it.mod::class == mod::class }?.apply {
-            isSelected = false
-            mod.settings.fastForEach { it.value = it.defaultValue }
-        }
+        val toggle = modToggles.find { it.mod::class == modClass } ?: return
 
-        customizationMenu.onModRemoved(mod)
-        queueModChange(mod)
+        enabledMods.remove(modClass)
+
+        toggle.isSelected = false
+        toggle.mod.settings.fastForEach { it.reset() }
+
+        customizationMenu.onModRemoved(toggle.mod)
+        queueModChange(toggle.mod)
     }
 
     //endregion

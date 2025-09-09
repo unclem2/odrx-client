@@ -60,6 +60,7 @@ public class GameplaySlider extends GameObject {
     private int completedSpanCount;
     private boolean reverse;
     private final boolean isSliderBallFlip;
+    private boolean shouldSnakeOut;
 
     private GameplayHitSampleInfo[][] nestedHitSamples;
     private final GameplaySequenceHitSampleInfo sliderSlideSample;
@@ -203,6 +204,7 @@ public class GameplaySlider extends GameObject {
 
         reverse = false;
         startHit = false;
+        shouldSnakeOut = false;
         ticksGot = 0;
         completedSpanCount = 0;
         currentTickSpriteIndex = 0;
@@ -442,6 +444,16 @@ public class GameplaySlider extends GameObject {
         }
 
         if (percentage >= 1) {
+            PointF previousPoint = getAbsolutePathPosition(path.anchorCount - 2);
+
+            if (updateBallAngle) {
+                ballAngle = MathUtils.radToDeg(Utils.direction(previousPoint.x, previousPoint.y, pathEndPosition.x, pathEndPosition.y));
+            }
+
+            if (updateEndArrowRotation) {
+                endArrow.setRotation(MathUtils.radToDeg(Utils.direction(pathEndPosition.x, pathEndPosition.y, previousPoint.x, previousPoint.y)));
+            }
+
             tmpPoint.set(pathEndPosition);
             return tmpPoint;
         }
@@ -913,21 +925,28 @@ public class GameplaySlider extends GameObject {
 
         // If the slider head is not judged yet
         if (!startHit) {
-            float frameOffset = (float) hitOffsetToPreviousFrame() / 1000;
             double elapsedTime = completedSpanCount * spanDuration + elapsedSpanTime;
 
-            if (!autoPlay && canBeHit(dt, frameOffset) && isHit()) {
-                // At this point, the object's state is already in the next update tick.
-                // However, hit judgements require the object's state to be in the previous tick.
-                // Therefore, we subtract dt to get the object's state in the previous tick.
-                onSliderHeadHit(elapsedTime - dt + frameOffset);
-            } else if (!autoPlay && completedSpanCount * spanDuration + elapsedSpanTime > getLateHitThreshold()) {
-                // If it's too late, mark this hit missing.
-                onSliderHeadHit(elapsedTime);
-            } else if (autoPlay && elapsedSpanTime >= 0) {
-                onSliderHeadHit(0);
-            } else if (replayObjectData != null && elapsedTime + dt / 2 > replayObjectData.accuracy / 1000d) {
-                onSliderHeadHit(replayObjectData.accuracy / 1000d);
+            if (replayObjectData == null) {
+                float frameOffset = (float) hitOffsetToPreviousFrame() / 1000;
+
+                if (!autoPlay && canBeHit(dt, frameOffset) && isHit()) {
+                    // At this point, the object's state is already in the next update tick.
+                    // However, hit judgements require the object's state to be in the previous tick.
+                    // Therefore, we subtract dt to get the object's state in the previous tick.
+                    onSliderHeadHit(elapsedTime - dt + frameOffset);
+                } else if (!autoPlay && completedSpanCount * spanDuration + elapsedSpanTime > getLateHitThreshold()) {
+                    // If it's too late, mark this hit missing.
+                    onSliderHeadHit(elapsedTime);
+                } else if (autoPlay && elapsedSpanTime >= 0) {
+                    onSliderHeadHit(0);
+                }
+            } else {
+                double accuracy = replayObjectData.accuracy / 1000d;
+
+                if (elapsedTime + dt / 2 > accuracy) {
+                    onSliderHeadHit(accuracy);
+                }
             }
         }
 
@@ -1011,7 +1030,7 @@ public class GameplaySlider extends GameObject {
         final float percentage = FMath.clamp((float) (elapsedSpanTime / spanDuration), 0, 1);
         final float bodyProgress = reverse ? 1 - percentage : percentage;
 
-        if (Config.isSnakingOutSliders() && completedSpanCount == beatmapSlider.getSpanCount() - 1) {
+        if (shouldSnakeOut && Config.isSnakingOutSliders() && completedSpanCount == beatmapSlider.getSpanCount() - 1) {
             float length = bodyProgress * superPath.getMeasurer().maxLength();
 
             if (reverse) {
@@ -1077,6 +1096,7 @@ public class GameplaySlider extends GameObject {
                 listener.registerAccuracy(hitOffset);
                 playCurrentNestedObjectHitSound();
                 ticksGot++;
+                shouldSnakeOut = true;
                 listener.onSliderHit(id, 30, position,
                         false, bodyColor, GameObjectListener.SLIDER_START, true);
             } else {
@@ -1090,6 +1110,7 @@ public class GameplaySlider extends GameObject {
             listener.registerAccuracy(hitOffset);
             playCurrentNestedObjectHitSound();
             ticksGot++;
+            shouldSnakeOut = true;
             listener.onSliderHit(id, 30, position,
                     false, bodyColor, GameObjectListener.SLIDER_START, true);
         }
@@ -1357,7 +1378,7 @@ public class GameplaySlider extends GameObject {
     }
 
     private Color4 getSynesthesiaComboColor(double time) {
-        return new Color4(ModSynesthesia.getColorFor(controlPoints.getClosestBeatDivisor(time)));
+        return ModSynesthesia.getColorFor(controlPoints.getClosestBeatDivisor(time));
     }
 
     @Override

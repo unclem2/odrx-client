@@ -146,7 +146,7 @@ public class OnlineManager {
         sessionId = params[1];
         rank = Integer.parseInt(params[2]);
         score = Long.parseLong(params[3]);
-        pp = Math.round(Float.parseFloat(params[4]));
+        pp = Float.parseFloat(params[4]);
         accuracy = Float.parseFloat(params[5]);
         this.username = params[6];
         if (params.length >= 8) {
@@ -204,7 +204,7 @@ public class OnlineManager {
         rank = Integer.parseInt(resp[0]);
         score = Long.parseLong(resp[1]);
         accuracy = Float.parseFloat(resp[2]);
-        pp = Math.round(Float.parseFloat(resp[3]));
+        pp = Float.parseFloat(resp[3]);
 
         return true;
     }

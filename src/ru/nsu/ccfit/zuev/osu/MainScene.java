@@ -120,7 +120,7 @@ public class MainScene implements IUpdateHandler {
     private float menuBarX = 0;
 
     private MainMenu menu;
-
+    private UIConfirmDialog exitDialog;
 
     public void load(Context context) {
         this.context = context;
@@ -914,15 +914,15 @@ public class MainScene implements IUpdateHandler {
             var beatmap = parser.parse(false);
 
             if (beatmap != null) {
-                timingControlPoints = new LinkedList<>(beatmap.getControlPoints().timing.controlPoints);
-                effectControlPoints = new LinkedList<>(beatmap.getControlPoints().effect.controlPoints);
+                var timingControlPoints = new LinkedList<>(beatmap.getControlPoints().timing.controlPoints);
+                var effectControlPoints = new LinkedList<>(beatmap.getControlPoints().effect.controlPoints);
 
                 // Getting the first timing point is not always accurate - case in point is when the music is not reloaded.
                 int position = GlobalManager.getInstance().getSongService() != null ?
                         GlobalManager.getInstance().getSongService().getPosition() : 0;
 
-                currentTimingPoint = null;
-                currentEffectPoint = null;
+                TimingControlPoint currentTimingPoint = null;
+                EffectControlPoint currentEffectPoint = null;
 
                 while (!timingControlPoints.isEmpty() && position > timingControlPoints.peek().time) {
                     currentTimingPoint = timingControlPoints.pop();
@@ -940,6 +940,11 @@ public class MainScene implements IUpdateHandler {
                     currentEffectPoint = beatmap.getControlPoints().effect.defaultControlPoint;
                 }
 
+                this.timingControlPoints = timingControlPoints;
+                this.effectControlPoints = effectControlPoints;
+                this.currentTimingPoint = currentTimingPoint;
+                this.currentEffectPoint = currentEffectPoint;
+
                 bpmLength = currentTimingPoint.msPerBeat;
                 beatPassTime = (position - currentTimingPoint.time) % bpmLength;
             }
@@ -947,14 +952,22 @@ public class MainScene implements IUpdateHandler {
     }
 
     public void showExitDialog() {
-        UIConfirmDialog dialog = new UIConfirmDialog();
-        dialog.setTitle("Exit");
-        dialog.setText(context.getString(com.osudroid.resources.R.string.dialog_exit_message));
-        dialog.setOnConfirm(() -> {
+        if (exitDialog != null || isOnExitAnim) {
+            return;
+        }
+
+        exitDialog = new UIConfirmDialog();
+        exitDialog.setTitle("Exit");
+        exitDialog.setText(context.getString(com.osudroid.resources.R.string.dialog_exit_message));
+        exitDialog.setOnConfirm(() -> {
             exit();
             return null;
         });
-        dialog.show();
+        exitDialog.setOnCancel(() -> {
+            exitDialog = null;
+            return null;
+        });
+        exitDialog.show();
     }
 
     public void exit() {

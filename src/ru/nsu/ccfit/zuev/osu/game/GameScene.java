@@ -4,6 +4,7 @@ import static kotlinx.coroutines.JobKt.ensureActive;
 
 import android.graphics.PointF;
 import android.os.SystemClock;
+import android.util.DisplayMetrics;
 import android.util.Log;
 
 import kotlin.Unit;
@@ -41,7 +42,6 @@ import com.osudroid.ui.v2.game.FollowPointConnection;
 import com.osudroid.ui.v2.hud.GameplayHUD;
 import com.osudroid.ui.v2.game.SliderTickSprite;
 import com.osudroid.ui.v2.hud.elements.HUDPPCounter;
-import com.osudroid.ui.v1.BlockAreaFragment;
 import com.osudroid.multiplayer.Multiplayer;
 import com.osudroid.multiplayer.RoomScene;
 
@@ -77,6 +77,7 @@ import org.anddev.andengine.engine.camera.Camera;
 import org.anddev.andengine.engine.camera.SmoothCamera;
 import org.anddev.andengine.engine.handler.IUpdateHandler;
 import org.anddev.andengine.engine.options.TouchOptions;
+import org.anddev.andengine.engine.options.WakeLockOptions;
 import org.anddev.andengine.entity.Entity;
 import org.anddev.andengine.entity.IEntity;
 import org.anddev.andengine.entity.modifier.LoopEntityModifier;
@@ -130,7 +131,7 @@ import ru.nsu.ccfit.zuev.skins.OsuSkin;
 import ru.nsu.ccfit.zuev.skins.BeatmapSkinManager;
 
 public class GameScene implements GameObjectListener, IOnSceneTouchListener {
-    public static final int CursorCount = 3;
+    public static final int CursorCount = 10;
     private final Engine engine;
     private Cursor[] cursors = new Cursor[CursorCount];
     private boolean[] cursorIIsDown = new boolean[CursorCount];
@@ -138,6 +139,8 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
     private UIScene scene;
     private UIScene bgScene, mgScene, fgScene;
     private Scene oldScene;
+    private UIBox sceneBorder;
+    private Shape beatmapBackground;
     private Beatmap parsedBeatmap;
     private DroidPlayableBeatmap playableBeatmap;
     private BeatmapInfo lastBeatmapInfo;
@@ -185,13 +188,14 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
     private UISprite unrankedSprite;
     private final ArrayList<IModApplicableToTrackRate> rateAdjustingMods = new ArrayList<>();
 
+    @Nullable
+    private Job storyboardLoadingJob;
     private StoryboardSprite storyboardSprite;
-
     private ProxySprite storyboardOverlayProxy;
 
     public HitWindow hitWindow;
 
-    private Job loadingJob;
+    private Job gameLoadingJob;
     private ModHashMap lastMods;
     private TimedDifficultyAttributes<DroidDifficultyAttributes>[] droidTimedDifficultyAttributes;
     private TimedDifficultyAttributes<StandardDifficultyAttributes>[] standardTimedDifficultyAttributes;
@@ -218,12 +222,6 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
      * Whether the game is ready to start.
      */
     public boolean isReadyToStart = false;
-
-    /**
-     * The current background loading job.
-     */
-    @Nullable
-    private Job backgroundLoadingJob;
 
 
     // UI
@@ -276,6 +274,17 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
 
     // Video support
 
+    /**
+     * The current video loading {@link Job}.
+     */
+    @Nullable
+    private Job videoLoadingJob;
+
+    /**
+     * Whether video is enabled.
+     */
+    private boolean videoEnabled;
+
     /**The video sprite*/
     private UIVideoSprite video;
 
@@ -306,9 +315,6 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
     /**Last score data chunk sent to server, used to determine if the data was changed.*/
     private ScoreBoardItem lastScoreSent = null;
 
-    /**The block area manager fragment used to manage the block area.*/
-    private BlockAreaFragment blockAreaFragment;
-
 
     public GameScene(final Engine engine) {
         this.engine = engine;
@@ -329,33 +335,32 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
         oldScene = oscene;
     }
 
-    private void loadBackground(BeatmapInfo beatmapInfo) {
-        dimRectangle = null;
-        videoStarted = false;
-        videoOffset = playableBeatmap.getEvents().videoStartTime / 1000f;
+    private void loadBackground() {
+        if (dimRectangle != null) {
+            dimRectangle.detachSelf();
+            dimRectangle = null;
+        }
 
-        var previousVideo = video;
-        video = null;
+        if (sceneBorder != null) {
+            sceneBorder.detachSelf();
+            sceneBorder = null;
+        }
 
-        // This is used instead of getBackgroundBrightness to directly obtain the
-        // updated value from the brightness slider.
-        float brightness = Config.getInt("bgbrightness", 25) / 100f;
-        float playfieldSize = Config.getPlayfieldSize();
+        if (storyboardSprite != null) {
+            storyboardSprite.detachSelf();
+            storyboardSprite = null;
+        }
 
-        if (Config.isDisplayPlayfieldBorder() && playfieldSize < 1f) {
-            var sceneBorder = new UIBox() {
-                {
-                    setAnchor(Anchor.Center);
-                    setOrigin(Anchor.Center);
-                    setPaintStyle(PaintStyle.Outline);
-                    setLineWidth(5f);
-                    setColor(1f, 1f, 1f);
-                    setAlpha(Interpolation.linear(0.2f, 0.8f, brightness));
-                    setSize(Config.getRES_WIDTH(), Config.getRES_HEIGHT());
-                }
-            };
+        if (video != null) {
+            video.release();
+            video.detachSelf();
+            video = null;
+        }
 
-            scene.attachChild(sceneBorder, 0);
+        var playableBeatmap = this.playableBeatmap;
+
+        if (playableBeatmap == null) {
+            return;
         }
 
         TextureRegion textureRegion = Config.isSafeBeatmapBg() || playableBeatmap.getEvents().backgroundFilename == null
@@ -371,87 +376,147 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
             }
             ComponentsKt.setColor4(rectangle, backgroundColor);
 
-            applyBackground(rectangle, brightness);
+            beatmapBackground = rectangle;
         } else {
-            applyBackground(new Sprite(0, 0, textureRegion.getWidth(), textureRegion.getHeight(), textureRegion), brightness);
-        }
-
-        // Storyboard and video are loaded asynchronously.
-        boolean isStoryboardEnabled = Config.getBoolean("enableStoryboard", false);
-        boolean isVideoEnabled = Config.getBoolean("enableVideo", false) && playableBeatmap.getEvents().videoFilename != null;
-
-        if (brightness > 0.02f && (isStoryboardEnabled || isVideoEnabled)) {
-
-            if (backgroundLoadingJob != null) {
-                backgroundLoadingJob.cancel(new CancellationException("Background loading job cancelled"));
-                backgroundLoadingJob = null;
-            }
-
-            backgroundLoadingJob = Execution.async(scope -> {
-
-                boolean videoLoaded = false;
-
-                if (isVideoEnabled) {
-
-                    if (previousVideo != null) {
-                        previousVideo.release();
-                    }
-
-                    try {
-                        video = new UIVideoSprite(lastBeatmapInfo.getAbsoluteSetDirectory() + "/" + playableBeatmap.getEvents().videoFilename, engine);
-                        video.setAlpha(0f);
-
-                        ensureActive(scope.getCoroutineContext());
-                        applyBackground(video, brightness);
-
-                        videoLoaded = true;
-                    } catch (Exception e) {
-                        video = null;
-                        Log.e("GameScene", "Error while loading video background.", e);
-                    }
-                }
-
-                if (isStoryboardEnabled) {
-
-                    StoryboardSprite storyboardSprite = this.storyboardSprite;
-                    this.storyboardSprite = null;
-
-                    if (storyboardSprite != null) {
-                        storyboardSprite.detachSelf();
-                    } else {
-                        storyboardSprite = new StoryboardSprite(Config.getRES_WIDTH(), Config.getRES_HEIGHT());
-                        ensureActive(scope.getCoroutineContext());
-                    }
-                    scene.attachChild(storyboardSprite, 0);
-
-                    ProxySprite storyboardOverlayProxy = this.storyboardOverlayProxy;
-                    this.storyboardOverlayProxy = null;
-
-                    if (storyboardOverlayProxy != null) {
-                        storyboardOverlayProxy.detachSelf();
-                    } else {
-                        storyboardSprite.setOverlayDrawProxy(storyboardOverlayProxy = new ProxySprite(Config.getRES_WIDTH(), Config.getRES_HEIGHT()));
-                        ensureActive(scope.getCoroutineContext());
-                    }
-
-                    storyboardSprite.setTransparentBackground(videoLoaded);
-                    storyboardSprite.setBrightness(brightness);
-                    storyboardSprite.loadStoryboard(beatmapInfo.getPath());
-                    ensureActive(scope.getCoroutineContext());
-
-                    scene.attachChild(storyboardOverlayProxy, scene.getChildIndex(fgScene));
-
-                    this.storyboardSprite = storyboardSprite;
-                    this.storyboardOverlayProxy = storyboardOverlayProxy;
-                }
-
-                ensureActive(scope.getCoroutineContext());
-                backgroundLoadingJob = null;
-            });
+            beatmapBackground = new Sprite(0, 0, textureRegion.getWidth(), textureRegion.getHeight(), textureRegion);
         }
     }
 
-    private void applyBackground(Shape background, float brightness) {
+    public void loadStoryboard(BeatmapInfo beatmapInfo) {
+        if (storyboardSprite != null) {
+            return;
+        }
+
+        // This is used instead of getBackgroundBrightness to directly obtain the
+        // updated value from the brightness slider.
+        float brightness = Config.getInt("bgbrightness", 25) / 100f;
+        boolean isStoryboardEnabled = brightness > 0.02f && Config.getBoolean("enableStoryboard", false);
+
+        if (!isStoryboardEnabled) {
+            cancelStoryboardLoading();
+            return;
+        }
+
+        if (storyboardLoadingJob != null && !storyboardLoadingJob.isCompleted()) {
+            return;
+        }
+
+        storyboardLoadingJob = Execution.async(scope -> {
+            StoryboardSprite storyboardSprite = this.storyboardSprite;
+            this.storyboardSprite = null;
+
+            if (storyboardSprite != null) {
+                storyboardSprite.detachSelf();
+            } else {
+                storyboardSprite = new StoryboardSprite(Config.getRES_WIDTH(), Config.getRES_HEIGHT());
+                ensureActive(scope.getCoroutineContext());
+            }
+
+            ProxySprite storyboardOverlayProxy = this.storyboardOverlayProxy;
+            this.storyboardOverlayProxy = null;
+
+            if (storyboardOverlayProxy != null) {
+                storyboardOverlayProxy.detachSelf();
+            } else {
+                storyboardSprite.setOverlayDrawProxy(storyboardOverlayProxy = new ProxySprite(Config.getRES_WIDTH(), Config.getRES_HEIGHT()));
+                ensureActive(scope.getCoroutineContext());
+            }
+
+            storyboardSprite.setTransparentBackground(videoEnabled && video != null);
+            storyboardSprite.loadStoryboard(beatmapInfo.getPath());
+            ensureActive(scope.getCoroutineContext());
+
+            this.storyboardSprite = storyboardSprite;
+            this.storyboardOverlayProxy = storyboardOverlayProxy;
+
+            // The storyboard may only load after gameplay is started, in which case we must apply it immediately.
+            Execution.updateThread(this::applyBackground);
+
+            storyboardLoadingJob = null;
+        });
+    }
+
+    private void cancelStoryboardLoading() {
+        if (storyboardLoadingJob != null) {
+            storyboardLoadingJob.cancel(new CancellationException("Storyboard loading job cancelled"));
+            storyboardLoadingJob = null;
+        }
+    }
+
+    public void loadVideo(BeatmapInfo beatmapInfo) {
+        var playableBeatmap = this.playableBeatmap;
+
+        if (playableBeatmap == null || video != null) {
+            return;
+        }
+
+        // This is used instead of getBackgroundBrightness to directly obtain the
+        // updated value from the brightness slider.
+        float brightness = Config.getInt("bgbrightness", 25) / 100f;
+        var videoFilename = playableBeatmap.getEvents().videoFilename;
+        videoEnabled = brightness > 0.02f && Config.getBoolean("enableVideo", false) && videoFilename != null;
+
+        if (!videoEnabled) {
+            cancelVideoLoading();
+            return;
+        }
+
+        if (videoLoadingJob != null && !videoLoadingJob.isCompleted()) {
+            return;
+        }
+
+        videoLoadingJob = Execution.async(scope -> {
+            try {
+                var video = new UIVideoSprite(beatmapInfo.getAbsoluteSetDirectory() + "/" + videoFilename, engine);
+                video.setAlpha(0f);
+
+                ensureActive(scope.getCoroutineContext());
+
+                this.video = video;
+
+                // The video may only load after gameplay is started, in which case we must apply it immediately.
+                Execution.updateThread(this::applyBackground);
+            } catch (Exception e) {
+                video = null;
+                Log.e("GameScene", "Error while loading video background.", e);
+            }
+
+            videoLoadingJob = null;
+        });
+    }
+
+    private void cancelVideoLoading() {
+        if (videoLoadingJob != null) {
+            videoLoadingJob.cancel(new CancellationException("Video loading job cancelled"));
+            videoLoadingJob = null;
+        }
+    }
+
+    private void applyBackground() {
+        // This is used instead of getBackgroundBrightness to directly obtain the
+        // updated value from the brightness slider.
+        float brightness = Config.getInt("bgbrightness", 25) / 100f;
+
+        boolean isStoryboardEnabled = brightness > 0.02f && Config.getBoolean("enableStoryboard", false);
+        float playfieldSize = Config.getPlayfieldSize();
+
+        if (sceneBorder == null && Config.isDisplayPlayfieldBorder() && playfieldSize < 1f) {
+            sceneBorder = new UIBox() {
+                {
+                    setAnchor(Anchor.Center);
+                    setOrigin(Anchor.Center);
+                    setPaintStyle(PaintStyle.Outline);
+                    setLineWidth(5f);
+                    setColor(1f, 1f, 1f);
+                    setAlpha(Interpolation.linear(0.2f, 0.8f, brightness));
+                    setSize(Config.getRES_WIDTH(), Config.getRES_HEIGHT());
+                }
+            };
+
+            scene.attachChild(sceneBorder, 0);
+        }
+
+        var background = videoEnabled && video != null ? video : beatmapBackground;
 
         if (dimRectangle != null) {
             dimRectangle.detachSelf();
@@ -474,6 +539,29 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
         background.setScale(factor);
         background.setPosition((Config.getRES_WIDTH() - background.getWidth()) / 2f, (Config.getRES_HEIGHT() - background.getHeight()) / 2f);
         scene.setBackground(new EntityBackground(background));
+
+        if (storyboardSprite != null) {
+            if (isStoryboardEnabled) {
+                storyboardSprite.setTransparentBackground(videoEnabled && video != null);
+                storyboardSprite.setBrightness(brightness);
+
+                if (!storyboardSprite.hasParent()) {
+                    scene.attachChild(storyboardSprite, 0);
+                }
+            } else {
+                storyboardSprite.detachSelf();
+            }
+        }
+
+        if (storyboardOverlayProxy != null) {
+            if (isStoryboardEnabled) {
+                if (!storyboardOverlayProxy.hasParent()) {
+                    scene.attachChild(storyboardOverlayProxy, scene.getChildIndex(fgScene));
+                }
+            } else {
+                storyboardOverlayProxy.detachSelf();
+            }
+        }
     }
 
     private boolean loadGame(final BeatmapInfo beatmapInfo, final String rFile, final ModHashMap mods, @Nullable CoroutineScope scope) {
@@ -539,6 +627,11 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
         var playableBeatmap = parsedBeatmap.createDroidPlayableBeatmap(mods.values());
         this.playableBeatmap = playableBeatmap;
 
+        // Load backgrounds early to minimize waiting time.
+        loadBackground();
+        loadStoryboard(beatmapInfo);
+        loadVideo(beatmapInfo);
+
         rateAdjustingMods.clear();
 
         for (var mod : mods.values()) {
@@ -557,13 +650,6 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
             }
             breakPeriods.add(new BreakPeriod(period.startTime / 1000f, period.endTime / 1000f));
         }
-
-        totalOffset = Config.getOffset();
-        var props = DatabaseManager.getBeatmapOptionsTable().getOptions(beatmapInfo.getSetDirectory());
-        if (props != null) {
-            totalOffset += props.getOffset();
-        }
-        totalOffset /= 1000;
 
         try {
             var musicFile = new File(beatmapInfo.getAudioPath());
@@ -585,7 +671,7 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
 
         GameHelper.setOverallDifficulty(playableBeatmap.getDifficulty().od);
         GameHelper.setHealthDrain(playableBeatmap.getDifficulty().hp);
-        GameHelper.setSpeedMultiplier(playableBeatmap.speedMultiplier);
+        GameHelper.setSpeedMultiplier(ModUtils.calculateRateWithMods(mods.values(), Double.NEGATIVE_INFINITY));
 
         GameHelper.setOriginalTimePreempt((float) BeatmapDifficulty.difficultyRange(
             playableBeatmap.getDifficulty().getAr(), HitObject.PREEMPT_MAX, HitObject.PREEMPT_MID, HitObject.PREEMPT_MIN
@@ -609,12 +695,14 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
         expiredObjects = new LinkedList<>();
         lastObjectId = -1;
         hitWindow = playableBeatmap.getHitWindow();
+        videoStarted = false;
+        videoOffset = playableBeatmap.getEvents().videoStartTime / 1000f;
 
         firstObjectStartTime = (float) firstObject.startTime / 1000;
         lastObjectEndTime = (float) objects.getLast().getEndTime() / 1000;
 
-        float objectTimePreempt = (float) firstObject.timePreempt / 1000;
-        float skipTargetTime = firstObjectStartTime - Math.max(2f, objectTimePreempt);
+        float firstObjectTimePreempt = (float) firstObject.timePreempt / 1000;
+        float skipTargetTime = firstObjectStartTime - Math.max(2f, firstObjectTimePreempt);
 
         elapsedTime = Math.min(0, skipTargetTime);
         skipTime = skipTargetTime - 1;
@@ -626,13 +714,9 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
         }
 
         // Ensure the video has time to start.
-        if (video != null) {
-            elapsedTime = Math.min(videoOffset, elapsedTime);
-        }
-
-        // Ensure user-defined offset has time to be applied.
-        elapsedTime = Math.min(elapsedTime, firstObjectStartTime - objectTimePreempt - totalOffset);
-        initialElapsedTime = elapsedTime;
+        // Even when video is not activated, apply offset anyway to ensure that everyone in multiplayer starts at the
+        // same time regardless of the setting.
+        elapsedTime = Math.min(elapsedTime, videoOffset);
 
         sliderBorderColor = BeatmapSkinManager.getInstance().getSliderColor();
         if (playableBeatmap.getColors().getSliderBorderColor() != null) {
@@ -861,14 +945,13 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
         }
 
         GameLoaderScene scene = new GameLoaderScene(this, beatmapToUse, modsToUse, isRestart);
-        engine.getCamera().setHUD(null);
         engine.setScene(scene);
 
         ResourceManager.getInstance().getSound("failsound").stop();
 
         cancelLoading()
                 .thenCompose((ignored) -> DifficultyCalculationManager.stopCalculation())
-                .thenRun(() -> loadingJob = Execution.async((scope) -> {
+                .thenRun(() -> gameLoadingJob = Execution.async((scope) -> {
                     boolean succeeded = false;
 
                     try {
@@ -882,7 +965,7 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
                             quit();
                         }
 
-                        loadingJob = null;
+                        gameLoadingJob = null;
                     }
                 }));
     }
@@ -893,11 +976,18 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
             return CompletableFuture.completedFuture(Unit.INSTANCE);
         }
 
-        return Execution.stopAsync(loadingJob).thenCompose((ignored) -> Execution.stopAsync(backgroundLoadingJob));
+        return Execution.stopAsync(gameLoadingJob)
+                .thenCompose((ignored) -> Execution.stopAsync(storyboardLoadingJob))
+                .thenCompose((ignored) -> Execution.stopAsync(videoLoadingJob));
     }
 
     private void prepareScene() {
         scene.setOnSceneTouchListener(this);
+        var playableBeatmap = this.playableBeatmap;
+
+        if (playableBeatmap == null) {
+            return;
+        }
 
         GameHelper.setHardRock(lastMods.ofType(ModHardRock.class));
         GameHelper.setDoubleTime(lastMods.ofType(ModDoubleTime.class));
@@ -1032,6 +1122,51 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
         // HUD should be to the last so we ensure everything is initialized and ready to be used by
         // the HUD elements in their constructors.
         hud = new GameplayHUD();
+
+        if (!replaying && !GameHelper.isAutoplay()) {
+            // Since block areas are saved in device pixels, we need to map them to scaled pixels.
+            final var displayMetrics = new DisplayMetrics();
+            GlobalManager.getInstance().getMainActivity().getWindowManager().getDefaultDisplay().getRealMetrics(displayMetrics);
+
+            final float ratio = (float) Config.getRES_WIDTH() / displayMetrics.widthPixels;
+
+            for (final var area : DatabaseManager.getBlockAreaTable().getAll()) {
+                // Attach the block area to the HUD so that it does not get scaled with the playfield.
+                var areaBox = new UIBox() {
+                    {
+                        setCornerRadius(2f);
+                        setColor(30f / 255f, 30f / 255f, 41f / 255f);
+                        setAlpha(0.15f);
+
+                        setPosition(
+                            Interpolation.linear(0f, area.getX(), ratio),
+                            Interpolation.linear(0f, area.getY(), ratio)
+                        );
+
+                        setSize(
+                            Interpolation.linear(0f, area.getWidth(), ratio),
+                            Interpolation.linear(0f, area.getHeight(), ratio)
+                        );
+                    }
+
+                    @Override
+                    public boolean onAreaTouched(TouchEvent event, float localX, float localY) {
+                        if (event.isActionDown()) {
+                            int id = event.getPointerID();
+
+                            if (id >= 0 && id < getCursorsCount()) {
+                                cursors[id].mouseBlocked = true;
+                            }
+                        }
+
+                        return false;
+                    }
+                };
+
+                hud.attachChild(areaBox);
+            }
+        }
+
         hud.setEditMode(isHUDEditorMode);
         hud.setSkinData(OsuSkin.get().getHUDSkinData());
 
@@ -1045,7 +1180,7 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
             hud.attachChild(replayText, 0);
         }
 
-        if (lastMods.contains(ModAutoplay.class) || replaying) {
+        if (GameHelper.isAutoplay() || replaying) {
             var metadata = playableBeatmap.getMetadata();
             playname = replaying ? GlobalManager.getInstance().getScoring().getReplayStat().getPlayerName() : "osu!";
 
@@ -1105,25 +1240,47 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
         }
     }
 
-    // This is used by the multiplayer system, is called once all players in the room completes beatmap loading.
+    /**
+     * Starts gameplay. This is used by the game loader once all necessary preprocessing is done.
+     */
     public void start() {
+        var playableBeatmap = this.playableBeatmap;
+
+        if (playableBeatmap == null) {
+            return;
+        }
+
+        totalOffset = Config.getOffset();
+
+        var props = DatabaseManager.getBeatmapOptionsTable().getOptions(lastBeatmapInfo.getSetDirectory());
+        if (props != null) {
+            totalOffset += props.getOffset();
+        }
+
+        totalOffset /= 1000;
+
+        // Ensure user-defined offset has time to be applied.
+        var firstObjectTimePreempt = (float) playableBeatmap.getHitObjects().objects.get(0).timePreempt / 1000;
+        elapsedTime = Math.min(elapsedTime, firstObjectStartTime - firstObjectTimePreempt - totalOffset);
+        initialElapsedTime = elapsedTime;
 
         if (skipTime <= 1)
             RoomScene.INSTANCE.getChat().dismiss();
 
         applyPlayfieldSizeScale();
-        loadBackground(lastBeatmapInfo);
+        applyBackground();
 
         // Handle input in its own thread
         var touchOptions = new TouchOptions();
         touchOptions.setRunOnUpdateThread(false);
         engine.getTouchController().applyTouchOptions(touchOptions);
 
+        // Disable screen dimming
+        engine.getEngineOptions().setWakeLockOptions(WakeLockOptions.SCREEN_BRIGHT);
+        GlobalManager.getInstance().getMainActivity().reapplyWakeLock();
+
         engine.setScene(scene);
         engine.getCamera().setHUD(hud.getParent());
-
-        blockAreaFragment = new BlockAreaFragment();
-        blockAreaFragment.show(false);
 
         if (isHUDEditorMode) {
             ToastLogger.showText(R.string.hudEditor_back_for_menu, false);
@@ -1131,7 +1288,9 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
     }
 
     public Color4 getComboColor(HitObject hitObject) {
-        if (GameHelper.isSynesthesia()) {
+        var playableBeatmap = this.playableBeatmap;
+
+        if (playableBeatmap != null && GameHelper.isSynesthesia()) {
             return ModSynesthesia.getColorFor(playableBeatmap.getControlPoints().getClosestBeatDivisor(hitObject.startTime));
         }
 
@@ -1183,10 +1342,8 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
             }
         }
 
-        if (Config.isEnableStoryboard()) {
-            if (storyboardSprite != null) {
-                storyboardSprite.updateTime(mSecPassed);
-            }
+        if (storyboardSprite != null && storyboardSprite.hasParent()) {
+            storyboardSprite.updateTime(mSecPassed);
         }
 
         if (replaying) {
@@ -1402,7 +1559,7 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
             tryHitActiveObjects(dt);
         }
 
-        if (video != null && elapsedTime >= videoOffset)
+        if (videoEnabled && video != null && elapsedTime >= videoOffset)
         {
             if (!videoStarted) {
                 video.play();
@@ -1563,7 +1720,6 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
             }
 
             scene = createMainScene();
-            engine.getCamera().setHUD(null);
             BeatmapSkinManager.setSkinEnabled(false);
             GameObjectPool.getInstance().purge();
             timingControlPoints.clear();
@@ -1589,11 +1745,8 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
                 replay.save(replayPath);
             }
             resetPlayfieldSizeScale();
-
-            if (blockAreaFragment != null) {
-                blockAreaFragment.dismiss();
-                blockAreaFragment = null;
-            }
+            cancelStoryboardLoading();
+            cancelVideoLoading();
 
             if (scoringScene != null && !startedFromHUDEditor) {
                 if (spectatorDataManager != null) {
@@ -1631,6 +1784,10 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
             var touchOptions = new TouchOptions();
             touchOptions.setRunOnUpdateThread(true);
             engine.getTouchController().applyTouchOptions(touchOptions);
+
+            // Enable screen dimming
+            engine.getEngineOptions().setWakeLockOptions(WakeLockOptions.SCREEN_DIM);
+            GlobalManager.getInstance().getMainActivity().reapplyWakeLock();
 
             if (video != null) {
                 video.release();
@@ -1752,7 +1909,7 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
 
             songService.seekTo(musicSeekTime);
 
-            if (video != null) {
+            if (videoEnabled && video != null) {
                 video.seekTo(videoSeekTime);
             }
 
@@ -1794,20 +1951,26 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
             sliderRenderPaths = null;
         });
 
+        cancelStoryboardLoading();
+        cancelVideoLoading();
         stopSpectatorDataSubmission();
 
         // osu!stable restarts the song back to preview time when the player is in the last 10 seconds *or* 2% of the beatmap.
         float mSecPassed = elapsedTime * 1000;
+        var selectedBeatmap = GlobalManager.getInstance().getSelectedBeatmap();
+        var songService = GlobalManager.getInstance().getSongService();
         var songMenu = GlobalManager.getInstance().getSongMenu();
-        if (totalLength - mSecPassed > 10000 && mSecPassed / totalLength < 0.98f) {
-            var songService = GlobalManager.getInstance().getSongService();
 
-            if (songService != null) {
-                songService.play();
+        if (songService != null && selectedBeatmap != null) {
+            // osu!stable restarts the song back to preview time when the player is in the last 10 seconds *or* 2% of the beatmap.
+            boolean continuePreview = mSecPassed < totalLength - 10000 && mSecPassed / totalLength < 0.98f;
+            int previewTime = continuePreview ? songService.getPosition() : selectedBeatmap.getPreviewTime();
+
+            songMenu.playMusic(selectedBeatmap.getAudioPath(), previewTime);
+
+            if (continuePreview) {
                 songMenu.startMusicVolumeAnimation(0.3f);
             }
-        } else {
-            songMenu.playMusic(lastBeatmapInfo.getAudioPath(), lastBeatmapInfo.getPreviewTime());
         }
 
         if (replaying) {
@@ -1816,16 +1979,14 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
     }
 
     public void quit() {
-
-        if (blockAreaFragment != null) {
-            blockAreaFragment.dismiss();
-            blockAreaFragment = null;
-        }
-
         // Handle input back in update thread
         var touchOptions = new TouchOptions();
         touchOptions.setRunOnUpdateThread(true);
         engine.getTouchController().applyTouchOptions(touchOptions);
+
+        // Enable screen dimming
+        engine.getEngineOptions().setWakeLockOptions(WakeLockOptions.SCREEN_DIM);
+        GlobalManager.getInstance().getMainActivity().reapplyWakeLock();
 
         if (storyboardSprite != null) {
             storyboardSprite.detachSelf();
@@ -1841,10 +2002,14 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
             videoStarted = false;
         }
 
+        if (sceneBorder != null) {
+            sceneBorder.detachSelf();
+            sceneBorder = null;
+        }
+
         onExit();
         resetPlayfieldSizeScale();
         scene = createMainScene();
-        engine.getCamera().setHUD(null);
 
         if (Multiplayer.isMultiplayer)
         {
@@ -1876,8 +2041,10 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
         boolean writeReplay = objectId != -1 && replay != null && !replaying;
         if (score == 0) {
             if (stat.getCombo() > 30) {
-                ResourceManager.getInstance().getCustomSound("combobreak", 1)
-                        .play();
+                var sound = ResourceManager.getInstance().getCustomSound("combobreak", 1);
+                if (sound != null) {
+                    sound.play();
+                }
             }
             comboWasMissed = true;
             stat.registerHit(0, false, false, incrementCombo);
@@ -1965,6 +2132,12 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
 
     public void onCircleHit(int id, final float acc, final PointF pos,
                             final boolean endCombo, byte forcedScore, Color4 color) {
+        var playableBeatmap = this.playableBeatmap;
+
+        if (playableBeatmap == null) {
+            return;
+        }
+
         if (GameHelper.isAutoplay()) {
             autoCursor.click();
             hud.onGameplayTouchDown((float) parsedBeatmap.getHitObjects().objects.get(id).startTime / 1000);
@@ -2038,8 +2211,10 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
 
         if (score == -1) {
             if (stat.getCombo() > 30) {
-                ResourceManager.getInstance().getCustomSound("combobreak", 1)
-                        .play();
+                var sound = ResourceManager.getInstance().getCustomSound("combobreak", 1);
+                if (sound != null) {
+                    sound.play();
+                }
             }
             if (GameHelper.isSuddenDeath()) {
                 stat.changeHp(-1.0f);
@@ -2265,6 +2440,11 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
 
 
     public boolean onSceneTouchEvent(final Scene pScene, final TouchEvent event) {
+        float offset = previousFrameTime > 0
+                ? (event.getMotionEvent().getEventTime() - previousFrameTime) * GameHelper.getSpeedMultiplier()
+                : 0;
+        int eventTime = (int) (elapsedTime * 1000 + offset);
+
         if (replaying || isGameOver) {
             return false;
         }
@@ -2275,6 +2455,31 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
         }
 
         var cursor = cursors[id];
+
+        if (event.isActionDown()) {
+            if (cursor.mouseBlocked) {
+                cursor.mouseBlocked = false;
+                return true;
+            }
+
+            final int maximumActiveCursorCount = 3;
+            int activeCursorCount = 0;
+
+            for (int i = 0; i < cursors.length; ++i) {
+                if (activeCursorCount >= maximumActiveCursorCount) {
+                    break;
+                }
+
+                if (cursors[i].mouseDown) {
+                    ++activeCursorCount;
+                }
+            }
+
+            if (activeCursorCount >= maximumActiveCursorCount) {
+                return false;
+            }
+        }
+
         var sprite = !GameHelper.isAutoplay() && !GameHelper.isAutopilot() && cursorSprites != null
                 ? cursorSprites[id]
                 : null;
@@ -2285,11 +2490,6 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
         if (sprite != null) {
             sprite.setPosition(cursor.mousePos.x, cursor.mousePos.y);
         }
-
-        float offset = previousFrameTime > 0
-                ? (event.getMotionEvent().getEventTime() - previousFrameTime) * GameHelper.getSpeedMultiplier()
-                : 0;
-        int eventTime = (int) (elapsedTime * 1000 + offset);
 
         if (event.isActionDown()) {
 
@@ -2312,7 +2512,8 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
                 replay.addPress(eventTime, gamePoint, id);
             }
 
-        } else if (event.isActionMove()) {
+            cursorIIsDown[id] = true;
+        } else if (cursor.mouseDown && event.isActionMove()) {
 
             if (sprite != null) {
                 sprite.setShowing(true);
@@ -2323,7 +2524,7 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
                 replay.addMove(eventTime, gamePoint, id);
             }
 
-        } else if (event.isActionUp()) {
+        } else if (cursor.mouseDown && event.isActionUp()) {
 
             if (sprite != null) {
                 sprite.setShowing(false);
@@ -2342,7 +2543,10 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
     }
 
     private void removeAllCursors() {
-        int time = GlobalManager.getInstance().getSongService().getPosition();
+        float offset = previousFrameTime > 0
+                ? (System.currentTimeMillis() - previousFrameTime) * GameHelper.getSpeedMultiplier()
+                : 0;
+        int time = (int) (elapsedTime * 1000 + offset);
 
         for (int i = 0; i < cursors.length; ++i) {
             var cursor = cursors[i];
@@ -2374,8 +2578,8 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
 
         if (Multiplayer.isMultiplayer)
         {
-            // Setting a delay of 300ms for the player to tap back button again.
-            if (lastBackPressTime > 0 && realTimeElapsed - lastBackPressTime > 300)
+            // Setting a delay of 300ms minimum for the player to tap back button again.
+            if (lastBackPressTime > 0 && realTimeElapsed - lastBackPressTime > Math.max(300, Config.getBackButtonPressTime() * 1.5f))
             {
                 // Room being null can happen when the player disconnects from socket while playing
                 if (Multiplayer.isConnected())
@@ -2407,10 +2611,6 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
             removeAllCursors();
         }
 
-        if (blockAreaFragment != null) {
-            blockAreaFragment.dismiss();
-        }
-
         if (GlobalManager.getInstance().getSongService() != null && GlobalManager.getInstance().getSongService().getStatus() == Status.PLAYING) {
             GlobalManager.getInstance().getSongService().pause();
         }
@@ -2439,11 +2639,6 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
             }
             quit();
             return;
-        }
-
-        if (blockAreaFragment != null) {
-            blockAreaFragment.dismiss();
-            blockAreaFragment = null;
         }
 
         stopLoopingSamples();
@@ -2522,7 +2717,7 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
                     float decreasedFrequency = Math.max(101, songService.getFrequency() - 300);
                     float decreasedSpeed = GameHelper.getSpeedMultiplier() * (1 - (initialFrequency - decreasedFrequency) / initialFrequency);
 
-                    if (video != null) {
+                    if (videoEnabled && video != null) {
                         // In some devices this can throw an exception, unfortunately there's no
                         // documentation that explains how to avoid that scenario. Thanks Google.
                         try {
@@ -2534,7 +2729,7 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
 
                     songService.setFrequencyForcefully(decreasedFrequency);
                 } else {
-                    if (video != null) {
+                    if (videoEnabled && video != null) {
                         video.pause();
                     }
 
@@ -2565,11 +2760,6 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
         if (!paused) {
             return;
         }
-
-        if (blockAreaFragment == null) {
-            blockAreaFragment = new BlockAreaFragment();
-        }
-        blockAreaFragment.show();
 
         scene.setIgnoreUpdate(false);
         hud.getParent().getChildScene().back();
@@ -2827,8 +3017,14 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
         return id;
     }
 
-    private void calculateAllSliderPaths(final CoroutineScope scope) {
-        if (playableBeatmap.getHitObjects().getSliderCount() == 0) {
+    private void calculateAllSliderPaths(@Nullable final CoroutineScope scope) {
+        if (scope != null) {
+            ensureActive(scope.getCoroutineContext());
+        }
+
+        var playableBeatmap = this.playableBeatmap;
+
+        if (playableBeatmap == null || playableBeatmap.getHitObjects().getSliderCount() == 0) {
             return;
         }
 
@@ -2837,14 +3033,16 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
         sliderIndex = 0;
 
         for (var obj : playableBeatmap.getHitObjects().objects) {
-            ensureActive(scope.getCoroutineContext());
+            if (scope != null) {
+                ensureActive(scope.getCoroutineContext());
+            }
 
             if (!(obj instanceof Slider slider)) {
                 continue;
             }
 
-            sliderPaths[sliderIndex] = GameHelper.convertSliderPath(slider);
-            sliderRenderPaths[sliderIndex] = GameHelper.convertSliderPath(sliderPaths[sliderIndex]);
+            sliderPaths[sliderIndex] = GameHelper.convertSliderPath(slider, scope);
+            sliderRenderPaths[sliderIndex] = GameHelper.convertSliderPath(sliderPaths[sliderIndex], scope);
             ++sliderIndex;
         }
 
@@ -2932,6 +3130,8 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
     }
 
     private double getDroidPPAt(int objectId) {
+        var playableBeatmap = this.playableBeatmap;
+
         if (playableBeatmap == null || droidTimedDifficultyAttributes == null || objectId < 0 || objectId >= droidTimedDifficultyAttributes.length) {
             return 0;
         }
@@ -2942,6 +3142,8 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
     }
 
     private double getStandardPPAt(int objectId) {
+        var playableBeatmap = this.playableBeatmap;
+
         if (playableBeatmap == null || standardTimedDifficultyAttributes == null || objectId < 0 || objectId >= standardTimedDifficultyAttributes.length) {
             return 0;
         }
@@ -2953,36 +3155,34 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
 
     private UIScene createMainScene() {
         return new UIScene() {
+            private boolean isInterpolating;
+
             @Override
             protected void onManagedUpdate(float secElapsed) {
                 var songService = GlobalManager.getInstance().getSongService();
-                float dt = secElapsed * GameHelper.getSpeedMultiplier();
-
-                // BASS may report the wrong position. When that happens, `dt` will either be negative or more than the
-                // actual progressed time. To prevent that situation from happening, we keep `dt` between thresholds.
-                // They serve as a buffer zone to allow audio and gameplay time to synchronize in cases where one is
-                // behind or ahead of the other.
-                // See https://github.com/ppy/osu/issues/26879 for more information.
-                float minDt = 0;
-                float maxDt = dt * 2;
+                float speedMultiplier = GameHelper.getSpeedMultiplier();
+                float dt = secElapsed * speedMultiplier;
 
                 if (songService.getStatus() == Status.PLAYING) {
-                    // Raise the minimum progressed time to still allow gameplay to progress in case audio time is
-                    // behind or BASS reports the wrong position, but not by much to still allow audio to catch up.
-                    // This allows for relatively smooth gameplay progression without the catch-up being too noticeable.
-                    minDt = dt / 2;
+                    // BASS may report the wrong position. When that happens, `dt` will either be negative or more than the
+                    // actual progressed time. To prevent that situation from happening, we keep `dt` between thresholds.
+                    // They serve as a buffer zone to allow audio and gameplay time to synchronize in cases where one is
+                    // behind or ahead of the other.
+                    // See https://github.com/ppy/osu/issues/26879 for more information.
+                    float minDt = dt / 2;
+                    float maxDt = dt * 2;
 
-                    float audioElapsedTime = songService.getPosition() / 1000f;
+                    float audioElapsedTime = (float) songService.getPositionPrecise() / 1000;
                     float gameElapsedTime = elapsedTime - totalOffset;
                     float timeDifference = gameElapsedTime - audioElapsedTime;
 
                     // In some cases, the audio can be behind the gameplay time so far it would cause gameplay to
                     // completely desynchronize. In that case, we do not let gameplay progress at all until the audio
                     // catches up.
-                    if (timeDifference <= 0.1f) {
-                        int minimumSynchronizationTime = Config.getMinimumGameplaySynchronizationTime();
+                    if (timeDifference <= 0.1f * speedMultiplier) {
+                        float minimumSynchronizationTime = Config.getMinimumGameplaySynchronizationTime() * speedMultiplier / 1000;
                         // Sync gameplay with audio if the difference is too large.
-                        if (timeDifference >=  minimumSynchronizationTime/ 1000f) {
+                        if (timeDifference >= minimumSynchronizationTime) {
                             if (minimumSynchronizationTime > 0) {
                                 Log.i("GameScene",
                                         "Synchronizing gameplay time with audio time at " +
@@ -2993,16 +3193,35 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
                             }
                             dt = -timeDifference;
                         }
+
+                        dt = FMath.clamp(dt, minDt, maxDt);
                     } else {
-                        minDt = 0;
                         dt = 0;
                     }
                 } else if (!musicStarted) {
-                    // Cap elapsed time at the music start time to prevent objects from progressing too far.
-                    dt = Math.min(elapsedTime + dt, totalOffset) - elapsedTime;
-                }
+                    float realElapsedTime = elapsedTime + dt;
+                    float targetElapsedTime = Math.min(realElapsedTime, totalOffset);
+                    float newElapsedTime;
 
-                dt = FMath.clamp(dt, minDt, maxDt);
+                    if (isInterpolating) {
+                        newElapsedTime = Interpolation.dampContinuously(realElapsedTime, targetElapsedTime, 0.08f, secElapsed);
+
+                        // If the difference is more than ~2 frames at 60 FPS, snap to the target time.
+                        if (Math.abs(targetElapsedTime - newElapsedTime) > 1f / 60f * 2f * speedMultiplier) {
+                            newElapsedTime = targetElapsedTime;
+                            isInterpolating = false;
+                        }
+                    } else {
+                        newElapsedTime = targetElapsedTime;
+
+                        // Only interpolate on second frame onwards.
+                        if (previousFrameTime > 0) {
+                            isInterpolating = true;
+                        }
+                    }
+
+                    dt = Math.max(0, newElapsedTime - elapsedTime);
+                }
 
                 update(dt);
                 super.onManagedUpdate(dt);
@@ -3018,11 +3237,23 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
         }
 
         float playfieldSize = Config.getPlayfieldSize();
+        float playfieldHorizontalPosition = Config.getPlayfieldHorizontalPosition();
+        float playfieldVerticalPosition = Config.getPlayfieldVerticalPosition();
 
         camera.setZoomFactorDirect(playfieldSize);
-        if (Config.isShrinkPlayfieldDownwards()) {
-            camera.setCenterDirect(Config.getRES_WIDTH() / 2f, Config.getRES_HEIGHT() / 2f * playfieldSize);
-        }
+
+        camera.setCenterDirect(
+            Config.getRES_WIDTH() * Interpolation.linear(
+                Interpolation.linear(0f, 0.5f, playfieldSize),
+                Interpolation.linear(1f, 0.5f, playfieldSize),
+                1 - playfieldHorizontalPosition
+            ),
+            Config.getRES_HEIGHT() * Interpolation.linear(
+                Interpolation.linear(0f, 0.5f, playfieldSize),
+                Interpolation.linear(1f, 0.5f, playfieldSize),
+                1 - playfieldVerticalPosition
+            )
+        );
     }
 
     private void resetPlayfieldSizeScale() {
@@ -3031,9 +3262,7 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
         }
 
         camera.setZoomFactorDirect(1f);
-        if (Config.isShrinkPlayfieldDownwards()) {
-            camera.setCenterDirect(Config.getRES_WIDTH() / 2f, Config.getRES_HEIGHT() / 2f);
-        }
+        camera.setCenterDirect(Config.getRES_WIDTH() / 2f, Config.getRES_HEIGHT() / 2f);
     }
 
     public void stopSpectatorDataSubmission() {

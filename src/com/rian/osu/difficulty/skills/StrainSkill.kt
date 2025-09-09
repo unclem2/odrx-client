@@ -71,13 +71,17 @@ abstract class StrainSkill<in TObject : DifficultyHitObject>(
      *
      * The result is scaled by clock rate as it affects the total number of strains.
      */
-    fun countDifficultStrains(): Double {
+    fun countTopWeightedStrains(): Double {
         if (difficulty == 0.0) {
             return 0.0
         }
 
         // This is what the top strain is if all strain values were identical.
         val consistentTopStrain = difficulty / 10
+
+        if (consistentTopStrain == 0.0) {
+            return objectStrains.size.toDouble()
+        }
 
         // Use a weighted sum of all strains.
         return objectStrains.fold(0.0) { acc, strain ->

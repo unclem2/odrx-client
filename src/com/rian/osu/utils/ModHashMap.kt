@@ -2,14 +2,15 @@ package com.rian.osu.utils
 
 import com.reco1l.toolkt.kotlin.fastForEach
 import com.rian.osu.mods.*
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.reflect.KClass
 import kotlin.reflect.full.createInstance
 import org.json.JSONArray
 
 /**
- * A [HashMap] of [Mod]s with additional functionalities.
+ * A [ConcurrentHashMap] of [Mod]s with additional functionalities.
  */
-open class ModHashMap : HashMap<Class<out Mod>, Mod> {
+open class ModHashMap : ConcurrentHashMap<Class<out Mod>, Mod> {
     constructor() : super()
     constructor(map: Map<out Class<out Mod>, Mod>) : super(map)
     constructor(mods: Collection<Mod>) : this(mods as Iterable<Mod>)
@@ -91,10 +92,12 @@ open class ModHashMap : HashMap<Class<out Mod>, Mod> {
     /**
      * Checks if this [ModHashMap] contains a [Mod].
      *
+     * Unlike other [contains] methods, this checks for both the type and the instance of the [Mod].
+     *
      * @param value The [Mod] to check for.
      * @return `true` if this [ModHashMap] contains the [Mod], `false` otherwise.
      */
-    operator fun contains(value: Mod) = value::class in this
+    operator fun contains(value: Mod) = value::class in this && this[value::class] == value
 
     /**
      * Gets a [Mod] of the specified type from this [ModHashMap].
@@ -126,11 +129,11 @@ open class ModHashMap : HashMap<Class<out Mod>, Mod> {
     /**
      * Removes a [Mod] from this [ModHashMap].
      *
-     * @param key The [Mod] to remove.
+     * @param mod The [Mod] to remove.
      * @return The removed [Mod] instance, or `null` if the [Mod] does not exist in this [ModHashMap].
      */
     @Suppress("UNCHECKED_CAST")
-    fun <T : Mod> remove(key: T) = remove(key::class.java) as? T
+    fun <T : Mod> remove(mod: T) = if (this[mod::class] == mod) remove(mod::class.java) as? T else null
 
     /**
      * Removes a [Mod] of the specified type from this [ModHashMap].
@@ -267,7 +270,7 @@ open class ModHashMap : HashMap<Class<out Mod>, Mod> {
                 return@fastForEach
             }
 
-            if (it in this@ModHashMap) {
+            if (it::class in this@ModHashMap) {
                 append(this@ModHashMap[it::class]!!.toString() + ",")
             }
         }

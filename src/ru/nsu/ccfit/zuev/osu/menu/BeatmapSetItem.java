@@ -6,7 +6,6 @@ import org.anddev.andengine.entity.scene.Scene;
 import org.anddev.andengine.entity.sprite.Sprite;
 
 import java.lang.ref.WeakReference;
-import java.util.Collections;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -161,6 +160,10 @@ public class BeatmapSetItem {
     }
 
     public void select() {
+        select(true);
+    }
+
+    public void select(boolean reloadBG) {
         if (!listener.get().isSelectAllowed() || scene == null) {
             return;
         }
@@ -171,7 +174,7 @@ public class BeatmapSetItem {
         initBeatmaps();
         percentAppeared = 0;
 
-        selectBeatmap(beatmapItems[0], true);
+        selectBeatmap(beatmapItems[0], reloadBG);
         beatmapItems[0].setSelectedColor();
     }
 
@@ -285,40 +288,28 @@ public class BeatmapSetItem {
     }
 
     private boolean visibleBeatmap(BeatmapInfo beatmapInfo, String key, String opt, String value) {
-        switch (key) {
-            case "ar":
-                return calOpt(beatmapInfo.getApproachRate(), Float.parseFloat(value), opt);
-            case "od":
-                return calOpt(beatmapInfo.getOverallDifficulty(), Float.parseFloat(value), opt);
-            case "cs":
-                return calOpt(beatmapInfo.getCircleSize(), Float.parseFloat(value), opt);
-            case "hp":
-                return calOpt(beatmapInfo.getHpDrainRate(), Float.parseFloat(value), opt);
-            case "droidstar":
-                return calOpt(beatmapInfo.getStarRating(DifficultyAlgorithm.droid), Float.parseFloat(value), opt);
-            case "standardstar":
-            case "star":
-                return calOpt(beatmapInfo.getStarRating(DifficultyAlgorithm.standard), Float.parseFloat(value), opt);
-            default:
-                return false;
-        }
+        return switch (key) {
+            case "ar" -> calOpt(beatmapInfo.getApproachRate(), Float.parseFloat(value), opt);
+            case "od" -> calOpt(beatmapInfo.getOverallDifficulty(), Float.parseFloat(value), opt);
+            case "cs" -> calOpt(beatmapInfo.getCircleSize(), Float.parseFloat(value), opt);
+            case "hp" -> calOpt(beatmapInfo.getHpDrainRate(), Float.parseFloat(value), opt);
+            case "droidstar" ->
+                calOpt(beatmapInfo.getStarRating(DifficultyAlgorithm.droid), Float.parseFloat(value), opt);
+            case "standardstar", "star" ->
+                calOpt(beatmapInfo.getStarRating(DifficultyAlgorithm.standard), Float.parseFloat(value), opt);
+            default -> false;
+        };
     }
 
     private boolean calOpt(float val1, float val2, String opt) {
-        switch (opt) {
-            case "=":
-                return val1 == val2;
-            case "<":
-                return val1 < val2;
-            case ">":
-                return val1 > val2;
-            case "<=":
-                return val1 <= val2;
-            case ">=":
-                return val1 >= val2;
-            default:
-                return false;
-        }
+        return switch (opt) {
+            case "=" -> val1 == val2;
+            case "<" -> val1 < val2;
+            case ">" -> val1 > val2;
+            case "<=" -> val1 <= val2;
+            case ">=" -> val1 >= val2;
+            default -> false;
+        };
     }
 
     public void delete() {
@@ -353,7 +344,7 @@ public class BeatmapSetItem {
         return selectedBeatmapItem == beatmapItem;
     }
 
-    private void freeBackground() {
+    private synchronized void freeBackground() {
         // scene.unregisterTouchArea(background);
         if (background == null) {
             return;
@@ -378,34 +369,38 @@ public class BeatmapSetItem {
         }
     }
 
-    private void freeBeatmaps() {
-
-        for (int i = 0; i < beatmapItems.length; i++) {
-            beatmapItems[i].setVisible(false);
-            scene.unregisterTouchArea(beatmapItems[i]);
-            beatmapItems[i].setVisible(false);
-            SongMenuPool.getInstance().putBeatmapItem(beatmapItems[i]);
-            beatmapItems[i] = null;
+    private synchronized void freeBeatmaps() {
+        for (var item : beatmapItems) {
+            if (item != null) {
+                item.setVisible(false);
+                scene.unregisterTouchArea(item);
+                SongMenuPool.getInstance().putBeatmapItem(item);
+            }
         }
-
     }
 
-    public void reloadBeatmaps() {
+    public synchronized void reloadBeatmaps() {
         if (beatmapId == -1) {
             // Tracks are originally sorted by osu!droid difficulty, so for osu!standard difficulty they need to be sorted again.
-            Collections.sort(beatmapSetInfo.getBeatmaps(), (o1, o2) -> Float.compare(o1.getStarRating(), o2.getStarRating()));
+            beatmapSetInfo.getBeatmaps().sort((o1, o2) -> Float.compare(o1.getStarRating(), o2.getStarRating()));
 
             var selectedBeatmap = selectedBeatmapItem != null ? selectedBeatmapItem.getBeatmapInfo() : null;
 
             for (int i = 0; i < beatmapItems.length; i++) {
-                beatmapItems[i].setBeatmapInfo(beatmapSetInfo.getBeatmap(i));
+                var item = beatmapItems[i];
+
+                if (item == null) {
+                    continue;
+                }
+
+                item.setBeatmapInfo(beatmapSetInfo.getBeatmap(i));
 
                 // Ensure the selected track is still selected after reloading.
                 if (selectedBeatmap != null && selectedBeatmap == beatmapSetInfo.getBeatmap(i)) {
-                    beatmapItems[i].setSelectedColor();
-                    selectedBeatmapItem = beatmapItems[i];
+                    item.setSelectedColor();
+                    selectedBeatmapItem = item;
                 } else {
-                    beatmapItems[i].setDeselectColor();
+                    item.setDeselectColor();
                 }
             }
         } else {
@@ -413,30 +408,34 @@ public class BeatmapSetItem {
         }
     }
 
-    private void initBeatmaps() {
+    private synchronized void initBeatmaps() {
         if (beatmapId == -1) {
             // Tracks are originally sorted by osu!droid difficulty, so for osu!standard difficulty they need to be sorted again.
-            Collections.sort(beatmapSetInfo.getBeatmaps(), (o1, o2) -> Float.compare(o1.getStarRating(), o2.getStarRating()));
+            beatmapSetInfo.getBeatmaps().sort((o1, o2) -> Float.compare(o1.getStarRating(), o2.getStarRating()));
 
             for (int i = 0; i < beatmapItems.length; i++) {
-                beatmapItems[i] = SongMenuPool.getInstance().newBeatmapItem();
-                beatmapItems[i].setItem(this);
-                beatmapItems[i].setBeatmapInfo(beatmapSetInfo.getBeatmap(i));
-                if (!beatmapItems[i].hasParent()) {
-                    layer.attachChild(beatmapItems[i]);
+                var item = SongMenuPool.getInstance().newBeatmapItem();
+                item.setItem(this);
+                item.setBeatmapInfo(beatmapSetInfo.getBeatmap(i));
+                if (!item.hasParent()) {
+                    layer.attachChild(item);
                 }
-                scene.registerTouchArea(beatmapItems[i]);
-                beatmapItems[i].setVisible(true);
+                scene.registerTouchArea(item);
+                item.setVisible(true);
+
+                beatmapItems[i] = item;
             }
         } else {
-            beatmapItems[0] = SongMenuPool.getInstance().newBeatmapItem();
-            beatmapItems[0].setItem(this);
-            beatmapItems[0].setBeatmapInfo(beatmapSetInfo.getBeatmap(beatmapId));
-            if (!beatmapItems[0].hasParent()) {
-                layer.attachChild(beatmapItems[0]);
+            var item = SongMenuPool.getInstance().newBeatmapItem();
+            item.setItem(this);
+            item.setBeatmapInfo(beatmapSetInfo.getBeatmap(beatmapId));
+            if (!item.hasParent()) {
+                layer.attachChild(item);
             }
-            scene.registerTouchArea(beatmapItems[0]);
-            beatmapItems[0].setVisible(true);
+            scene.registerTouchArea(item);
+            item.setVisible(true);
+
+            beatmapItems[0] = item;
         }
     }
 
@@ -492,7 +491,7 @@ public class BeatmapSetItem {
         return -1;
     }
 
-    public BeatmapItem getBeatmapSpritesById(int index){
+    public synchronized BeatmapItem getBeatmapSpritesById(int index){
         return beatmapItems[index % beatmapItems.length];
     }
 }

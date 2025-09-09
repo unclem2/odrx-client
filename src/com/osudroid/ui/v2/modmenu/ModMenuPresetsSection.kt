@@ -44,7 +44,7 @@ class ModMenuPresetsSection : ModMenuSection("Presets") {
 
         val modPreset = ModPreset(
             name = name,
-            serializedMods = ModMenu.enabledMods.serializeMods().toString()
+            serializedMods = ModMenu.enabledMods.serializeMods(includeIrrelevantMods = true).toString()
         )
 
         DatabaseManager.modPresetTable.insert(modPreset)
@@ -66,18 +66,15 @@ class ModMenuPresetsSection : ModMenuSection("Presets") {
 
 
     fun onModsChanged() {
+        val enabledMods = ModMenu.enabledMods
+
+        addButton.isEnabled = enabledMods.isNotEmpty()
+
         toggleContainer.callOnChildren { toggle ->
             if (toggle is ModPresetToggle) {
-                toggle.isSelected = toggle.preset.mods == ModMenu.enabledMods
+                toggle.isSelected = toggle.preset.mods == enabledMods
             }
         }
-    }
-
-    override fun onManagedUpdate(deltaTimeSec: Float) {
-
-        addButton.isEnabled = ModMenu.enabledMods.isNotEmpty()
-
-        super.onManagedUpdate(deltaTimeSec)
     }
 
 
@@ -138,7 +135,7 @@ class ModMenuPresetsSection : ModMenuSection("Presets") {
 
             +ModsIndicator().apply {
                 iconSize = 21f
-                mods = preset.mods.serializeMods()
+                mods = preset.mods.serializeMods(includeIrrelevantMods = true)
             }
         }
 

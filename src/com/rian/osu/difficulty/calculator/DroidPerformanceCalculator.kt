@@ -6,6 +6,7 @@ import com.rian.osu.beatmap.PreciseDroidHitWindow
 import com.rian.osu.difficulty.attributes.DroidDifficultyAttributes
 import com.rian.osu.difficulty.attributes.DroidPerformanceAttributes
 import com.rian.osu.math.ErrorFunction
+import com.rian.osu.math.Interpolation
 import com.rian.osu.mods.*
 import com.rian.osu.replay.SliderCheesePenalty
 import kotlin.math.*
@@ -44,15 +45,14 @@ class DroidPerformanceCalculator(
             if (mods.any { m -> m is ModRelax }) {
                 // Graph: https://www.desmos.com/calculator/bc9eybdthb
                 // We use OD13.3 as maximum since it's the value at which great hit window becomes 0.
-                val okMultiplier = max(
+                val okMultiplier = 0.75 * max(
                     0.0,
-                    if (overallDifficulty > 0) 1 - (overallDifficulty / 13.33).pow(1.8)
-                    else 1.0
+                    if (overallDifficulty > 0) 1 - overallDifficulty / 13.33 else 1.0
                 )
+
                 val mehMultiplier = max(
                     0.0,
-                    if (overallDifficulty > 0) 1 - (overallDifficulty / 13.33).pow(5)
-                    else 1.0
+                    if (overallDifficulty > 0) 1 - (overallDifficulty / 13.33).pow(5) else 1.0
                 )
 
                 // As we're adding 100s and 50s to an approximated number of combo breaks, the result can be higher
@@ -108,19 +108,15 @@ class DroidPerformanceCalculator(
         aimValue *= calculateDeviationBasedLengthScaling()
 
         if (aimDifficultSliderCount > 0) {
-            val estimateImproperlyFollowedDifficultSliders: Double
-
-            if (usingClassicSliderCalculation) {
+            val estimateImproperlyFollowedDifficultSliders = if (usingClassicSliderCalculation) {
                 // When the score is considered classic (regardless if it was made on old client or not),
                 // we consider all missing combo to be dropped difficult sliders.
-                estimateImproperlyFollowedDifficultSliders =
-                    min(totalImperfectHits, maxCombo - scoreMaxCombo).toDouble().coerceIn(0.0, aimDifficultSliderCount)
+                min(totalImperfectHits, maxCombo - scoreMaxCombo).toDouble().coerceIn(0.0, aimDifficultSliderCount)
             } else {
                 // We add tick misses here since they too mean that the player didn't follow the slider
                 // properly. However, we aren't adding misses here because missing slider heads has a harsh
                 // penalty by itself and doesn't mean that the rest of the slider wasn't followed properly.
-                estimateImproperlyFollowedDifficultSliders =
-                    (sliderEndsDropped!! + sliderTicksMissed!!).toDouble().coerceIn(0.0, aimDifficultSliderCount)
+                (sliderEndsDropped!! + sliderTicksMissed!!).toDouble().coerceIn(0.0, aimDifficultSliderCount)
             }
 
             aimValue *=
@@ -169,6 +165,8 @@ class DroidPerformanceCalculator(
         // We make the punishment harsher punishment for such scenario.
         tapValue *= vibroFactor.pow(6) +
             (1 - vibroFactor.pow(6)) / (1 + exp((tapDeviation - 7500 / averageBPM) / (2 * 300 / averageBPM)))
+
+        tapValue *= calculateTapHighDeviationNerf()
 
         // Scale the tap value with three-fingered penalty.
         tapValue /= tapPenalty
@@ -411,48 +409,91 @@ class DroidPerformanceCalculator(
         // Assume a fixed ratio of non-300s hit in speed notes based on speed note count ratio and OD.
         // Graph: https://www.desmos.com/calculator/31argjcxqc
         val speedNoteRatio = speedNoteCount / totalHits
-
-        val nonGreatCount = countOk + countMeh + countMiss
         val nonGreatRatio = 1 - (exp(sqrt(greatWindow)) + 1.0).pow(1 - speedNoteRatio) / exp(sqrt(greatWindow))
 
-        val relevantCountGreat = max(0.0, speedNoteCount - nonGreatCount * nonGreatRatio)
-        val relevantCountOk = max(0.0, countOk * nonGreatRatio)
-        val relevantCountMeh = max(0.0, countMeh * nonGreatRatio)
-        val relevantCountMiss = max(0.0, countMiss * nonGreatRatio)
+        // Assume worst case - all non-300s happened in speed notes.
+        val relevantCountMiss = min(countMiss * nonGreatRatio, speedNoteCount)
+        val relevantCountMeh = min(countMeh * nonGreatRatio, speedNoteCount - relevantCountMiss)
+        val relevantCountOk = min(countOk * nonGreatRatio, speedNoteCount - relevantCountMiss - relevantCountMeh)
+        val relevantCountGreat = max(0.0, speedNoteCount - relevantCountMiss - relevantCountMeh - relevantCountOk)
 
-        // Assume 100s, 50s, and misses happen on circles. If there are less non-300s on circles than 300s,
-        // compute the deviation on circles.
-        if (relevantCountGreat > 0) {
-            // The probability that a player hits a circle is unknown, but we can estimate it to be
-            // the number of greats on circles divided by the number of circles, and then add one
-            // to the number of circles as a bias correction.
-            val greatProbabilityCircle =
-                relevantCountGreat / (speedNoteCount - relevantCountMiss - relevantCountMeh + 1)
-
-            // Compute the deviation assuming 300s and 100s are normally distributed, and 50s are uniformly distributed.
-            // Begin with the normal distribution first.
-            var deviationOnCircles = greatWindow / (sqrt(2.0) * ErrorFunction.erfInv(greatProbabilityCircle))
-
-            deviationOnCircles *=
-                sqrt(1 - sqrt(2 / PI) * okWindow * exp(-0.5 * (okWindow / deviationOnCircles).pow(2)) /
-                        (deviationOnCircles * ErrorFunction.erf(okWindow / (sqrt(2.0) * deviationOnCircles))))
-
-            // Then compute the variance for 50s.
-            val mehVariance = (mehWindow.pow(2) + mehWindow * okWindow + okWindow.pow(2)) / 3
-
-            // Find the total deviation.
-            return@run sqrt(
-                ((relevantCountGreat + relevantCountOk) * deviationOnCircles.pow(2) + relevantCountMeh * mehVariance) /
-                    (relevantCountGreat + relevantCountOk + relevantCountMeh)
-            )
+        if (relevantCountGreat + relevantCountOk + relevantCountMeh <= 0) {
+            return@run Double.POSITIVE_INFINITY
         }
 
-        Double.POSITIVE_INFINITY
+        // The sample proportion of successful hits.
+        val n = max(1.0, relevantCountGreat + relevantCountOk)
+
+        // 99% critical value for the normal distribution (one-tailed).
+        val z = 2.32634787404
+
+        // Proportion of greats hit on circles, ignoring misses and 50s.
+        val p = relevantCountGreat / n
+
+        // We can be 99% confident that the population proportion is at least this value.
+        val pLowerBound = (n * p + z * z / 2) / (n + z * z) - z / (n + z * z) * sqrt(n * p * (1 - p) + z * z / 4)
+        var deviation: Double
+
+        // Tested max precision for the deviation calculation.
+        if (pLowerBound > 0.01) {
+            // Compute the deviation assuming greats and oks are normally distributed.
+            deviation = greatWindow / (sqrt(2.0) * ErrorFunction.erfInv(pLowerBound))
+
+            // Subtract the deviation provided by tails that land outside the ok hit window from the deviation computed above.
+            // This is equivalent to calculating the deviation of a normal distribution truncated at +-okHitWindow.
+            val okHitWindowTailAmount = sqrt(2 / Math.PI) * okWindow *
+                exp(-0.5 * (okWindow / deviation).pow(2)) / (deviation * ErrorFunction.erf(okWindow / (sqrt(2.0) * deviation)))
+
+            deviation *= sqrt(1 - okHitWindowTailAmount)
+        } else {
+            // A tested limit value for the case of a score only containing oks.
+            deviation = okWindow / sqrt(3.0)
+        }
+
+        // Compute and add the variance for mehs, assuming that they are uniformly distributed.
+        val mehVariance = (mehWindow.pow(2) + okWindow * mehWindow + okWindow.pow(2)) / 3
+
+        // Find the total deviation.
+        deviation = sqrt(
+            ((relevantCountGreat + relevantCountOk) * deviation.pow(2) + relevantCountMeh * mehVariance) / (relevantCountGreat + relevantCountOk + relevantCountMeh)
+        )
+
+        return@run deviation
+    }
+
+    /**
+     * Calculates a multiplier for tap to account for improper tapping based on the deviation and tap difficulty.
+     *
+     * [Graph](https://www.desmos.com/calculator/z5l9ebrwpi)
+     */
+    private fun calculateTapHighDeviationNerf(): Double {
+        if (tapDeviation == Double.POSITIVE_INFINITY) {
+            return 0.0
+        }
+
+        val tapValue = (5 * max(1.0, difficultyAttributes.tapDifficulty / 0.0675) - 4).pow(3) / 100000
+
+        // Decide a point where the PP value achieved compared to the tap deviation is assumed to be tapped
+        // improperly. Any PP above this point is considered "excess" tap difficulty. This is used to cause
+        // PP above the cutoff to scale logarithmically towards the original tap value thus nerfing the value.
+        val excessTapDifficultyCutoff = 100 + 250 * (25 / tapDeviation).pow(6.5)
+
+        if (tapValue <= excessTapDifficultyCutoff) {
+            return 1.0
+        }
+
+        val scale = 50
+        val adjustedTapValue = scale * (ln((tapValue - excessTapDifficultyCutoff) / scale + 1) + excessTapDifficultyCutoff / scale)
+
+        // 250 UR and less are considered tapped correctly to ensure that normal scores will be punished as little as possible.
+        val t = 1 - Interpolation.reverseLinear(tapDeviation, 25.0, 30.0)
+
+        return Interpolation.linear(adjustedTapValue, tapValue, t) / tapValue
     }
 
     private fun getConvertedHitWindow(): HitWindow {
         var od = difficultyAttributes.overallDifficulty.toFloat()
-        var hitWindow = if (isPrecise) PreciseDroidHitWindow(od) else DroidHitWindow(od)
+        val hitWindow = if (isPrecise) PreciseDroidHitWindow(od) else DroidHitWindow(od)
         val realGreatWindow = hitWindow.greatWindow * difficultyAttributes.clockRate.toFloat()
 
         // Obtain the good and meh hit window for osu!droid.
@@ -464,6 +505,6 @@ class DroidPerformanceCalculator(
     }
 
     companion object {
-        const val FINAL_MULTIPLIER = 1.24
+        const val FINAL_MULTIPLIER = 1.25
     }
 }

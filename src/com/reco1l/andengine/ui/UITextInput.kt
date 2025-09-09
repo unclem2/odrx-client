@@ -5,6 +5,7 @@ import android.view.KeyEvent.*
 import android.view.inputmethod.InputMethodManager
 import androidx.core.content.*
 import androidx.core.view.*
+import com.osudroid.utils.mainThread
 import com.reco1l.andengine.*
 import com.reco1l.andengine.component.*
 import com.reco1l.andengine.modifier.*
@@ -69,6 +70,7 @@ open class UITextInput(initialValue: String) : UIControl<String>(initialValue), 
     init {
         height = 48f
         padding = Vec4(12f, 0f)
+        caretPosition = value.length
 
         +textEntity
         +caret
@@ -102,7 +104,7 @@ open class UITextInput(initialValue: String) : UIControl<String>(initialValue), 
     }
 
     @Suppress("DEPRECATION")
-    private fun setKeyboardVisibility(value: Boolean) {
+    private fun setKeyboardVisibility(value: Boolean) = mainThread {
 
         val imm = ExtendedEngine.Current.context.getSystemService<InputMethodManager>()
             ?: throw NullPointerException("InputMethodManager is null")
@@ -112,7 +114,7 @@ open class UITextInput(initialValue: String) : UIControl<String>(initialValue), 
 
         // Tricky prevention from opening the keyboard while it should be closed and vice versa.
         if (value == (keyboardHeight > 0) || !value == (keyboardHeight == 0)) {
-            return
+            return@mainThread
         }
 
         imm.toggleSoftInput(if (value) InputMethodManager.SHOW_FORCED else InputMethodManager.HIDE_IMPLICIT_ONLY, 0)
@@ -176,7 +178,7 @@ open class UITextInput(initialValue: String) : UIControl<String>(initialValue), 
         val dummyCharWidth = font!!.getStringWidth("0")
 
         letterPositions = IntArray(value.length + 1) { i ->
-            if (i > 0) font!!.getStringWidth(value.substring(0, i) + "0") - dummyCharWidth else 0
+            if (i > 0) font!!.getStringWidth(value.take(i) + "0") - dummyCharWidth else 0
         }
 
         return super.onProcessValue(value)
@@ -212,7 +214,7 @@ open class UITextInput(initialValue: String) : UIControl<String>(initialValue), 
         val currentText = value
         val currentCaretPosition = caretPosition
         val newText =
-            currentText.substring(0, currentCaretPosition) + char + currentText.substring(currentCaretPosition)
+            currentText.take(currentCaretPosition) + char + currentText.substring(currentCaretPosition)
 
         if (newText.isNotEmpty() && !isTextValid(newText)) {
             notifyInputError()
@@ -232,7 +234,7 @@ open class UITextInput(initialValue: String) : UIControl<String>(initialValue), 
         val currentCaretPosition = caretPosition
 
         val newText =
-            if (position > 0) currentText.substring(0, position - 1) + currentText.substring(position)
+            if (position > 0) currentText.take(position - 1) + currentText.substring(position)
             else currentText.substring(1)
 
         if (newText.isNotEmpty() && !isTextValid(newText)) {

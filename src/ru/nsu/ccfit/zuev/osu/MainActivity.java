@@ -782,12 +782,8 @@ public class MainActivity extends BaseGameActivity implements
                         runOnUiThread(RoomScene.INSTANCE.getLeaveDialog()::show);
                         return true;
                     }
-                } else if (currentScene instanceof GameLoaderScene) {
-                    if (gameScene != null) {
-                        gameScene.cancelLoading();
-                    }
-
-                    GlobalManager.getInstance().getEngine().setScene(songMenu.getScene());
+                } else if (currentScene instanceof GameLoaderScene loaderScene) {
+                    loaderScene.cancel();
                     return true;
                 }
 

@@ -3,6 +3,7 @@ package com.osudroid.ui.v1
 import android.annotation.SuppressLint
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.net.Uri
@@ -12,7 +13,9 @@ import android.text.InputType.TYPE_CLASS_TEXT
 import android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
 import android.util.Log
 import android.view.ContextThemeWrapper
+import android.view.LayoutInflater
 import android.view.View
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
@@ -20,10 +23,13 @@ import androidx.annotation.XmlRes
 import androidx.core.content.getSystemService
 import androidx.core.view.forEach
 import androidx.core.view.get
+import androidx.core.view.updateLayoutParams
 import androidx.preference.CheckBoxPreference
 import androidx.preference.Preference
+import androidx.preference.PreferenceManager
 import androidx.preference.SeekBarPreference
 import com.acivev.VibratorManager
+import com.edlplan.framework.easing.Easing
 import com.edlplan.ui.fragment.LoadingFragment
 import com.edlplan.ui.fragment.SettingsFragment
 import com.google.android.material.snackbar.Snackbar
@@ -39,6 +45,7 @@ import com.osudroid.data.DatabaseManager
 import com.osudroid.utils.mainThread
 import com.osudroid.multiplayer.Multiplayer
 import com.osudroid.multiplayer.RoomScene
+import com.reco1l.framework.asTimeInterpolator
 import com.reco1l.osu.ui.InputPreference
 import com.reco1l.osu.ui.Option
 import com.reco1l.osu.ui.SelectPreference
@@ -64,6 +71,8 @@ import ru.nsu.ccfit.zuev.osuplus.R
 import ru.nsu.ccfit.zuev.skins.BeatmapSkinManager
 import java.io.File
 import kotlin.math.max
+import kotlin.math.roundToInt
+import kotlinx.coroutines.Job
 
 
 class SettingsFragment : SettingsFragment() {
@@ -232,6 +241,7 @@ class SettingsFragment : SettingsFragment() {
 
         Section.General -> handleGeneralSectionPreferences()
         Section.Gameplay -> handleGameplaySectionPreferences()
+        Section.Audio -> handleAudioSectionPreferences()
         Section.Library -> handleLibrarySectionPreferences()
         Section.Advanced -> handleAdvancedSectionPreferences()
         Section.Input -> handleInputSectionPreferences()
@@ -281,11 +291,20 @@ class SettingsFragment : SettingsFragment() {
         }
 
         findPreference<Preference>("restore")!!.setOnPreferenceClickListener {
+            val context = it.context
             val success = ConfigBackup.importPreferences()
 
             if (success) {
-                ToastLogger.showText(string.config_backup_restore_info_success, true)
-                dismiss()
+                val prefs = PreferenceManager.getDefaultSharedPreferences(context)
+
+                GlobalManager.getInstance().songService.volume = prefs.getInt("bgmvolume", 100) / 100f
+
+                loadSkin(context, prefs.getString("skinPath", "")!!).invokeOnCompletion {
+                    mainThread {
+                        ToastLogger.showText(string.config_backup_restore_info_success, true)
+                        dismiss()
+                    }
+                }
             } else {
                 ToastLogger.showText(string.config_backup_restore_info_fail, true)
             }
@@ -314,24 +333,7 @@ class SettingsFragment : SettingsFragment() {
             options = skins
 
             setOnPreferenceChangeListener { _, newValue ->
-
-                val loading = LoadingFragment()
-                loading.show()
-
-                async {
-                    BeatmapSkinManager.getInstance().clearSkin()
-                    // Setting the skin now so that any setting that relies on skins (i.e., the HUD editor) receives
-                    // the correct skin path.
-                    Config.setSkinPath(newValue.toString())
-                    ResourceManager.getInstance().loadSkin(newValue.toString())
-                    GlobalManager.getInstance().engine.textureManager.reloadTextures()
-
-                    mainThread {
-                        loading.dismiss()
-                        context.startActivity(Intent(context, MainActivity::class.java))
-                        Snackbar.make(requireActivity().window.decorView, string.message_loaded_skin, 1500).show()
-                    }
-                }
+                loadSkin(context, newValue.toString())
                 true
             }
         }
@@ -344,8 +346,10 @@ class SettingsFragment : SettingsFragment() {
             }
 
             setOnPreferenceClickListener {
+                val global = GlobalManager.getInstance()
+                val selectedBeatmap = global.selectedBeatmap
 
-                if (LibraryManager.getSizeOfBeatmaps() == 0) {
+                if (LibraryManager.getSizeOfBeatmaps() == 0 || selectedBeatmap == null) {
                     ToastLogger.showText("Cannot enter HUD editor with empty beatmap library!", true)
                 } else {
                     dismiss()
@@ -354,11 +358,66 @@ class SettingsFragment : SettingsFragment() {
                         put(ModAutoplay::class)
                     }
 
-                    val global = GlobalManager.getInstance()
-
                     global.gameScene.setOldScene(global.mainScene.scene)
-                    global.gameScene.startGame(global.selectedBeatmap, null, modMap, true)
+                    global.gameScene.startGame(selectedBeatmap, null, modMap, true)
                 }
+                true
+            }
+        }
+
+        val playfieldAreaDisplay = PlayfieldAreaDisplay()
+
+        findPreference<SeekBarPreference>("playfieldSize")!!.apply {
+            updatesContinuously = true
+
+            setOnPreferenceChangeListener { _, newValue ->
+                Config.setPlayfieldSize((newValue as Int) / 100f)
+                playfieldAreaDisplay.update()
+                true
+            }
+        }
+
+        findPreference<SeekBarPreference>("playfieldHorizontalPosition")!!.apply {
+            updatesContinuously = true
+
+            setOnPreferenceChangeListener { _, newValue ->
+                Config.setPlayfieldHorizontalPosition((newValue as Int) / 100f)
+                playfieldAreaDisplay.update()
+                true
+            }
+        }
+
+        findPreference<SeekBarPreference>("playfieldVerticalPosition")!!.apply {
+            updatesContinuously = true
+
+            setOnPreferenceChangeListener { _, newValue ->
+                Config.setPlayfieldVerticalPosition((newValue as Int) / 100f)
+                playfieldAreaDisplay.update()
+                true
+            }
+        }
+    }
+
+
+    private fun handleAudioSectionPreferences() {
+        findPreference<SeekBarPreference>("bgmvolume")!!.apply {
+            updatesContinuously = true
+
+            setOnPreferenceChangeListener { _, newValue ->
+                GlobalManager.getInstance().songService.volume = (newValue as Int) / 100f
+                true
+            }
+        }
+
+        findPreference<SeekBarPreference>("soundvolume")!!.apply {
+            setOnPreferenceChangeListener { _, newValue ->
+                // Set the configuration now as the sound below depends on this value.
+                Config.setSoundVolume((newValue as Int) / 100f)
+
+                // Use the sound when the osu! cookie is clicked since it is guaranteed to be available and not
+                // skinnable (which means the player cannot silence it via skins).
+                ResourceManager.getInstance().loadSound("menuhit", "sfx/menuhit.ogg", false)?.play()
+
                 true
             }
         }
@@ -418,7 +477,7 @@ class SettingsFragment : SettingsFragment() {
 
     private fun handleInputSectionPreferences() {
         findPreference<Preference>("block_areas")!!.setOnPreferenceClickListener {
-            BlockAreaFragment().show(true)
+            BlockAreaEditorFragment().show()
             true
         }
 
@@ -560,7 +619,28 @@ class SettingsFragment : SettingsFragment() {
     }
 
 
-    private enum class Section(@XmlRes val xml: Int) {
+    private fun loadSkin(context: Context, path: String): Job {
+        val loading = LoadingFragment()
+        loading.show()
+
+        return async {
+            BeatmapSkinManager.getInstance().clearSkin()
+            // Setting the skin now so that any setting that relies on skins (i.e., the HUD editor) receives
+            // the correct skin path.
+            Config.setSkinPath(path)
+            ResourceManager.getInstance().loadSkin(path)
+            GlobalManager.getInstance().engine.textureManager.reloadTextures()
+
+            mainThread {
+                loading.dismiss()
+                context.startActivity(Intent(context, MainActivity::class.java))
+                Snackbar.make(requireActivity().window.decorView, string.message_loaded_skin, 1500).show()
+            }
+        }
+    }
+
+
+    private enum class Section(@param:XmlRes val xml: Int) {
 
         General(R.xml.settings_general),
         Gameplay(R.xml.settings_gameplay),
@@ -574,6 +654,60 @@ class SettingsFragment : SettingsFragment() {
         Room(R.xml.multiplayer_room_settings),
         Player(R.xml.multiplayer_player_settings)
 
+    }
+
+
+    private inner class PlayfieldAreaDisplay {
+        private val view = LayoutInflater.from(context).inflate(R.layout.playfield_area_display, null, false)!!
+        private val display = view.findViewById<View>(R.id.display)!!
+
+        private var previousPlayfieldSize = Config.getPlayfieldSize()
+
+        init {
+            updateMeasurements()
+            requireView().findViewById<FrameLayout>(R.id.root_container)!!.addView(view)
+        }
+
+        fun update() {
+            val newPlayfieldSize = Config.getPlayfieldSize()
+
+            // We do not need to update states or show anything if the playfield size is 100%, since it will fill the
+            // entire screen anyway, making position settings irrelevant.
+            if (previousPlayfieldSize == 1f && newPlayfieldSize == 1f) {
+                return
+            }
+
+            previousPlayfieldSize = newPlayfieldSize
+            updateMeasurements()
+
+            display.apply {
+                clearAnimation()
+
+                animate()
+                    .alpha(0.3f)
+                    .setDuration(400)
+                    .setInterpolator(Easing.OutQuint.asTimeInterpolator())
+                    .withEndAction {
+                        animate()
+                            .alpha(0f)
+                            .setDuration(500)
+                    }
+            }
+        }
+
+        private fun updateMeasurements() {
+            val playfieldSize = Config.getPlayfieldSize()
+            val width = (playfieldSize * root!!.width).roundToInt()
+            val height = (playfieldSize * root!!.height).roundToInt()
+
+            view.x = (root!!.width - width) * Config.getPlayfieldHorizontalPosition()
+            view.y = (root!!.height - height) * Config.getPlayfieldVerticalPosition()
+
+            display.updateLayoutParams {
+                this.width = width
+                this.height = height
+            }
+        }
     }
 
 
