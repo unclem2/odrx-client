@@ -500,6 +500,11 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
         boolean isStoryboardEnabled = brightness > 0.02f && Config.getBoolean("enableStoryboard", false);
         float playfieldSize = Config.getPlayfieldSize();
 
+        var storyboardSprite = this.storyboardSprite;
+        var storyboardOverlayProxy = this.storyboardOverlayProxy;
+        var video = this.video;
+        var sceneBorder = this.sceneBorder;
+
         if (sceneBorder == null && Config.isDisplayPlayfieldBorder() && playfieldSize < 1f) {
             sceneBorder = new UIBox() {
                 {
@@ -514,6 +519,7 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
             };
 
             scene.attachChild(sceneBorder, 0);
+            this.sceneBorder = sceneBorder;
         }
 
         var background = videoEnabled && video != null ? video : beatmapBackground;
@@ -3042,6 +3048,11 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
             }
 
             sliderPaths[sliderIndex] = GameHelper.convertSliderPath(slider, scope);
+
+            if (scope != null) {
+                ensureActive(scope.getCoroutineContext());
+            }
+
             sliderRenderPaths[sliderIndex] = GameHelper.convertSliderPath(sliderPaths[sliderIndex], scope);
             ++sliderIndex;
         }

@@ -34,8 +34,7 @@ def getReleaseVersionCode() {
 }
 
 def getReleaseVersionName() {
-    def baseline = '1.8.5.2-tournament'
-    def versionName = baseline + new Date().format('(yyMMdd)')
+    def versionName = new Date().format('yyyy.Mdd' + '.0-tournament')
     println('versionName: ' + versionName)
     return versionName
 }
@@ -160,8 +159,7 @@ android {
 
     android.applicationVariants.configureEach { variant ->
         variant.outputs.configureEach { output ->
-            def releaseTime = new Date().format("yyyy-MM-dd", TimeZone.getTimeZone("UTC"))
-            def fileName = "osu!droid-${defaultConfig.versionName}-${variant.buildType.name}-${releaseTime}.apk"
+            def fileName = "osudroid-${defaultConfig.versionName}-${variant.buildType.name}.apk"
             outputFileName = fileName
         }
     }
@@ -183,7 +181,7 @@ dependencies {
     implementation 'com.github.EdrowsLuo.EdlGameFramework:EdlOsbSupport:d91c53fcff'
 
     // Localizations
-    implementation 'com.github.osudroid:language-pack:1.0.21'
+    implementation 'com.github.osudroid:language-pack:2025.910.0'
 
     // Tools
     implementation 'com.github.Reco1I:Toolkt:1.0.24'
