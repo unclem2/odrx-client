@@ -34,7 +34,7 @@ def getReleaseVersionCode() {
 }
 
 def getReleaseVersionName() {
-    def versionName = new Date().format('yyyy.Mdd' + '.0-tournament')
+    def versionName = new Date().format('yyyy.Mdd') + '.0-tournament'
     println('versionName: ' + versionName)
     return versionName
 }
