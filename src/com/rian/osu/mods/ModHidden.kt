@@ -71,6 +71,9 @@ class ModHidden : ModWithVisibilityAdjustment() {
         beatmap.hitObjects.objects.forEach { applyFadeInAdjustment(it) }
     }
 
+    override val extraInformation
+        get() = if (!onlyFadeApproachCircles) super.extraInformation else "AC only"
+
     override fun deepCopy() = ModHidden().also {
         it.onlyFadeApproachCircles = onlyFadeApproachCircles
     }
