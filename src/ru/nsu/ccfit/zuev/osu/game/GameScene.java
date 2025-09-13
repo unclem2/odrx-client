@@ -680,7 +680,7 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
         GameHelper.setSpeedMultiplier(ModUtils.calculateRateWithMods(mods.values(), Double.NEGATIVE_INFINITY));
 
         GameHelper.setOriginalTimePreempt((float) BeatmapDifficulty.difficultyRange(
-            playableBeatmap.getDifficulty().getAr(), HitObject.PREEMPT_MAX, HitObject.PREEMPT_MID, HitObject.PREEMPT_MIN
+            playableBeatmap.getDifficulty().getAR(), HitObject.PREEMPT_MAX, HitObject.PREEMPT_MID, HitObject.PREEMPT_MIN
         ));
 
         if (scope != null) {
@@ -861,7 +861,7 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
         multiplier += (Math.min(rawDifficulty.gameplayCS, 17.62f) - 3) / 4f;
 
         stat.setDiffModifier(multiplier);
-        stat.setBeatmapNoteCount(beatmapInfo.getTotalHitObjectCount());
+        stat.setBeatmapNoteCount(objects.size());
         stat.setV1MaxScore(parsedBeatmap.getMaxScore());
 
         if (!Multiplayer.isMultiplayer && !replaying && OnlineManager.getInstance().isStayOnline() && replay != null) {
@@ -3034,9 +3034,9 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
             return;
         }
 
-        sliderPaths = new SliderPath[playableBeatmap.getHitObjects().getSliderCount()];
-        sliderRenderPaths = new LinePath[playableBeatmap.getHitObjects().getSliderCount()];
-        sliderIndex = 0;
+        var sliderPaths = new SliderPath[playableBeatmap.getHitObjects().getSliderCount()];
+        var sliderRenderPaths = new LinePath[playableBeatmap.getHitObjects().getSliderCount()];
+        int index = 0;
 
         for (var obj : playableBeatmap.getHitObjects().objects) {
             if (scope != null) {
@@ -3047,17 +3047,18 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
                 continue;
             }
 
-            sliderPaths[sliderIndex] = GameHelper.convertSliderPath(slider, scope);
+            sliderPaths[index] = GameHelper.convertSliderPath(slider, scope);
 
             if (scope != null) {
                 ensureActive(scope.getCoroutineContext());
             }
 
-            sliderRenderPaths[sliderIndex] = GameHelper.convertSliderPath(sliderPaths[sliderIndex], scope);
-            ++sliderIndex;
+            sliderRenderPaths[index] = GameHelper.convertSliderPath(sliderPaths[index], scope);
+            ++index;
         }
 
-        sliderIndex = 0;
+        this.sliderPaths = sliderPaths;
+        this.sliderRenderPaths = sliderRenderPaths;
     }
 
     private SliderPath getSliderPath(int index) {

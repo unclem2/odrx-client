@@ -10,6 +10,7 @@ import com.edlplan.framework.easing.Easing;
 import com.edlplan.ui.fragment.SearchBarFragment;
 import com.edlplan.ui.fragment.BeatmapPropertiesFragment;
 import com.edlplan.ui.fragment.ScoreMenuFragment;
+import com.osudroid.ui.v1.BeatmapAttributeDisplay;
 import com.osudroid.utils.Execution;
 import com.reco1l.andengine.UIScene;
 import com.reco1l.framework.EasingKt;
@@ -24,8 +25,6 @@ import com.osudroid.multiplayer.RoomScene;
 
 import com.osudroid.ui.v2.modmenu.ModMenu;
 import com.rian.osu.GameMode;
-import com.rian.osu.beatmap.DroidHitWindow;
-import com.rian.osu.beatmap.PreciseDroidHitWindow;
 import com.rian.osu.beatmap.parser.BeatmapParser;
 import com.rian.osu.difficulty.BeatmapDifficultyCalculator;
 import com.rian.osu.math.Precision;
@@ -41,6 +40,7 @@ import org.anddev.andengine.engine.Engine;
 import org.anddev.andengine.engine.handler.IUpdateHandler;
 import org.anddev.andengine.entity.Entity;
 import org.anddev.andengine.entity.primitive.Rectangle;
+import org.anddev.andengine.entity.scene.Scene;
 import org.anddev.andengine.entity.scene.background.ColorBackground;
 import org.anddev.andengine.entity.scene.background.SpriteBackground;
 import org.anddev.andengine.entity.sprite.Sprite;
@@ -125,7 +125,7 @@ public class SongMenu implements IUpdateHandler, MenuItemListener,
             beatmapHitObjectsText,
             beatmapDifficultyText;
 
-    private UISprite currentPressedButton;
+    private Scene.ITouchArea currentPressedButton;
     private UISprite scoringSwitcher = null;
     private SearchBarFragment searchBar = null;
     private GroupType groupType = GroupType.MapSet;
@@ -326,8 +326,49 @@ public class SongMenu implements IUpdateHandler, MenuItemListener,
         frontLayer.attachChild(beatmapHitObjectsText);
 
         beatmapDifficultyText = new ChangeableText(Utils.toRes(4), beatmapHitObjectsText.getY() + beatmapHitObjectsText.getHeight() + Utils.toRes(2),
-                ResourceManager.getInstance().getFont("smallFont"), "dimensionInfo", 1024);
+                ResourceManager.getInstance().getFont("smallFont"), "dimensionInfo", 1024) {
+            private boolean moved = false;
+            private float dx = 0, dy = 0;
+
+            @Override
+            public boolean onAreaTouched(TouchEvent pSceneTouchEvent, float pTouchAreaLocalX, float pTouchAreaLocalY) {
+                if (pSceneTouchEvent.isActionDown()) {
+                    if (currentPressedButton == null) {
+                        currentPressedButton = this;
+                        moved = false;
+                        dx = pTouchAreaLocalX;
+                        dy = pTouchAreaLocalY;
+                    }
+                    return true;
+                }
+
+                if (pSceneTouchEvent.isActionUp()) {
+                    if (currentPressedButton == this) {
+                        currentPressedButton = null;
+                        var selectedBeatmap = SongMenu.this.selectedBeatmap;
+
+                        if (selectedBeatmap != null && !moved) {
+                            var mods = ModMenu.INSTANCE.getEnabledMods();
+                            new BeatmapAttributeDisplay(selectedBeatmap.getBeatmapDifficulty(), mods.values()).show();
+                        }
+                    }
+                    return true;
+                }
+
+                if (pSceneTouchEvent.isActionOutside()
+                        || pSceneTouchEvent.isActionMove()
+                        && (MathUtils.distance(dx, dy, pTouchAreaLocalX,
+                        pTouchAreaLocalY) > 50) && currentPressedButton == this) {
+                    currentPressedButton = null;
+                    moved = true;
+                }
+
+                return false;
+            }
+        };
+
         frontLayer.attachChild(beatmapDifficultyText);
+        scene.registerTouchArea(beatmapDifficultyText);
 
         var clickShortSound = ResourceManager.getInstance().getSound("click-short");
         var clickShortConfirmSound = ResourceManager.getInstance().getSound("click-short-confirm");
@@ -917,24 +958,12 @@ public class SongMenu implements IUpdateHandler, MenuItemListener,
         boolean isPreciseMod = mods.contains(ModPrecise.class);
         float totalSpeedMultiplier = ModUtils.calculateRateWithMods(mods.values(), Double.POSITIVE_INFINITY);
 
-        var difficulty = beatmapInfo.getBeatmapDifficulty();
-
+        var difficulty = beatmapInfo.getBeatmapDifficulty().clone();
         ModUtils.applyModsToBeatmapDifficulty(difficulty, GameMode.Droid, mods.values(), true);
 
-        if (isPreciseMod) {
-            // Special case for OD. The Precise mod changes the hit window and not the OD itself, but we must
-            // map the hit window back to the original hit window for the user to understand the difficulty
-            // increase of the mod.
-            float greatWindow = new PreciseDroidHitWindow(difficulty.od).getGreatWindow();
-            difficulty.od = DroidHitWindow.hitWindow300ToOverallDifficulty(greatWindow);
-        }
-
         // Round to 2 decimal places.
-        // Using difficulty circle size is quite inaccurate here as the real circle size changes
-        // depending on the height of the running device, but for the sake of comparison across
-        // players, we assume the height of the device to be fixed.
-        difficulty.difficultyCS = GameHelper.Round(difficulty.difficultyCS, 2);
-        difficulty.setAr(GameHelper.Round(difficulty.getAr(), 2));
+        difficulty.gameplayCS = GameHelper.Round(difficulty.gameplayCS, 2);
+        difficulty.setAR(GameHelper.Round(difficulty.getAR(), 2));
         difficulty.od = GameHelper.Round(difficulty.od, 2);
         difficulty.hp = GameHelper.Round(difficulty.hp, 2);
 
@@ -954,8 +983,8 @@ public class SongMenu implements IUpdateHandler, MenuItemListener,
                 beatmapDifficultyText.setColor(1, 180 / 255f, 0);
             }
         } else if (
-            (!Precision.almostEquals(originalCS, difficulty.difficultyCS) && originalCS < difficulty.difficultyCS) ||
-            (!Precision.almostEquals(originalAR, difficulty.getAr()) && originalAR < difficulty.getAr()) ||
+            (!Precision.almostEquals(originalCS, difficulty.gameplayCS) && originalCS < difficulty.gameplayCS) ||
+            (!Precision.almostEquals(originalAR, difficulty.getAR()) && originalAR < difficulty.getAR()) ||
             (!Precision.almostEquals(originalOD, difficulty.od) && originalOD < difficulty.od) ||
             (!Precision.almostEquals(originalOD, difficulty.hp) && originalHP < difficulty.hp)
         ) {
@@ -965,8 +994,8 @@ public class SongMenu implements IUpdateHandler, MenuItemListener,
                 beatmapDifficultyText.setColor(205 / 255f, 85 / 255f, 85 / 255f);
             }
         } else if (
-            (!Precision.almostEquals(originalCS, difficulty.difficultyCS) && originalCS > difficulty.difficultyCS) ||
-            (!Precision.almostEquals(originalAR, difficulty.getAr()) && originalAR > difficulty.getAr()) ||
+            (!Precision.almostEquals(originalCS, difficulty.gameplayCS) && originalCS > difficulty.gameplayCS) ||
+            (!Precision.almostEquals(originalAR, difficulty.getAR()) && originalAR > difficulty.getAR()) ||
             (!Precision.almostEquals(originalOD, difficulty.od) && originalOD > difficulty.od) ||
             (!Precision.almostEquals(originalOD, difficulty.hp) && originalHP > difficulty.hp)
         ) {
@@ -975,6 +1004,8 @@ public class SongMenu implements IUpdateHandler, MenuItemListener,
             } else {
                 beatmapDifficultyText.setColor(46 / 255f, 139 / 255f, 87 / 255f);
             }
+        } else if (isPreciseMod) {
+            beatmapDifficultyText.setColor(205 / 255f, 85 / 255f, 85 / 255f);
         }
 
         if (totalSpeedMultiplier > 1) {
@@ -1001,7 +1032,7 @@ public class SongMenu implements IUpdateHandler, MenuItemListener,
         String[] strs = str.split("Stars: ");
 
         beatmapDifficultyText.setText(
-            "AR: " + difficulty.getAr() + " " +
+            "AR: " + difficulty.getAR() + " " +
             "OD: " + difficulty.od + " " +
             "CS: " + difficulty.difficultyCS + " " +
             "HP: " + difficulty.hp + " " +
