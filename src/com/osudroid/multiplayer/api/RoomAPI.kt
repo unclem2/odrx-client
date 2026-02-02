@@ -527,8 +527,8 @@ object RoomAPI {
      * Submit the match score at the end of the game.
      */
     @JvmStatic
-    fun submitFinalScore(json: JSONObject?) {
-        socket?.emit("scoreSubmission", json) ?: run {
+    fun submitFinalScore(json: JSONObject?, replay: ByteArray?) {
+        socket?.emit("scoreSubmission", json, replay) ?: run {
             Multiplayer.log("WARNING: Tried to emit event 'scoreSubmission' while socket is null.")
             return
         }

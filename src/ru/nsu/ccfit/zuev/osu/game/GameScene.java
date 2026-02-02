@@ -1752,14 +1752,20 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
             sliderRenderPaths = null;
             String replayPath = null;
             stat.setTime(System.currentTimeMillis());
+
+            byte[] replayData;
+
             if (replay != null && !replaying) {
                 String ctime = String.valueOf(System.currentTimeMillis());
                 replayPath = Config.getCorePath() + "Scores/"
                         + MD5Calculator.getStringMD5(lastBeatmapInfo.getFilename() + ctime)
                         + ctime.substring(0, Math.min(3, ctime.length())) + ".odr";
                 replay.setStat(stat);
-                replay.save(replayPath);
+                replayData = replay.save(replayPath);
+            } else {
+                replayData = null;
             }
+
             resetPlayfieldSizeScale();
             cancelStoryboardLoading();
             cancelVideoLoading();
@@ -1781,7 +1787,7 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
                         Multiplayer.log("Match ended, moving to results scene.");
                         Multiplayer.roomScene.getChat().show();
 
-                        Execution.async(() -> Execution.runSafe(() -> RoomAPI.submitFinalScore(stat.toJson())));
+                        Execution.async(() -> Execution.runSafe(() -> RoomAPI.submitFinalScore(stat.toJson(), replayData)));
 
                         ToastLogger.showText("Loading room statistics...", false);
                     }
@@ -2565,7 +2571,7 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
             {
                 // Room being null can happen when the player disconnects from socket while playing
                 if (Multiplayer.isConnected())
-                    Execution.async(() -> Execution.runSafe(() -> RoomAPI.submitFinalScore(stat.toJson())));
+                    Execution.async(() -> Execution.runSafe(() -> RoomAPI.submitFinalScore(stat.toJson(), null)));
 
                 Multiplayer.log("Player left the match.");
                 quit();
@@ -2617,7 +2623,7 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
         if (Multiplayer.isMultiplayer) {
             if (Multiplayer.isConnected()) {
                 Multiplayer.log("Player has lost, moving to room scene.");
-                Execution.async(() -> Execution.runSafe(() -> RoomAPI.submitFinalScore(stat.toJson())));
+                Execution.async(() -> Execution.runSafe(() -> RoomAPI.submitFinalScore(stat.toJson(), null)));
             }
             quit();
             return;
