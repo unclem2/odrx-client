@@ -64,7 +64,6 @@ class SendingPanel(
         attachChild(it)
     }
 
-    private val mapRankColumn = Column("Map Rank").also { rowContainer.attachChild(it) }
     private val overallRankColumn = Column("Overall Rank").also { rowContainer.attachChild(it) }
     private val accuracyColumn = Column("Accuracy").also { rowContainer.attachChild(it) }
     private val scoreColumn = Column("Score").also { rowContainer.attachChild(it) }
@@ -75,14 +74,8 @@ class SendingPanel(
         resetPosition()
     }
 
-    fun show(newMapRank: Long, newOverallRank: Long, newScore: Long, newAccuracy: Float, newPP: Float) {
+    fun show(newOverallRank: Long, newScore: Long, newAccuracy: Float, newPP: Float) {
         dismissButton.canBeDismissed = true
-
-        // Map rank column is special, as its color is different when ranking up
-        updateColumn(mapRankColumn, "#$newMapRank", 0f)
-        if (newScore > score) {
-            mapRankColumn.setValueRectColor(1f, 1f, 0f, 0.8f)
-        }
 
         updateColumn(
             overallRankColumn,
@@ -91,8 +84,7 @@ class SendingPanel(
                 newOverallRank < overallRank -> "#$newOverallRank\n(+${overallRank - newOverallRank})"
                 else -> "#$newOverallRank\n(-${newOverallRank - overallRank})"
             },
-            (overallRank - newOverallRank).toFloat(),
-            mapRankColumn
+            (overallRank - newOverallRank).toFloat()
         )
 
         updateColumn(
@@ -131,7 +123,6 @@ class SendingPanel(
 
         // Obtain the maximum height of all columns
         val columnMaxHeight = maxOf(
-            mapRankColumn.height,
             overallRankColumn.height,
             accuracyColumn.height,
             scoreColumn.height,
@@ -139,14 +130,13 @@ class SendingPanel(
         )
 
         // Update the height of all columns to the maximum height
-        mapRankColumn.height = columnMaxHeight
         overallRankColumn.height = columnMaxHeight
         accuracyColumn.height = columnMaxHeight
         scoreColumn.height = columnMaxHeight
         ppColumn.height = columnMaxHeight
 
         rowContainer.let {
-            it.width = ppColumn.x + ppColumn.width - mapRankColumn.x
+            it.width = ppColumn.x + ppColumn.width - overallRankColumn.x
             it.height = columnMaxHeight
         }
 

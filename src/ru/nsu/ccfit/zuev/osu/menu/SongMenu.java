@@ -13,6 +13,7 @@ import com.edlplan.ui.fragment.ScoreMenuFragment;
 import com.osudroid.ui.v1.BeatmapAttributeDisplay;
 import com.osudroid.utils.Execution;
 import com.reco1l.andengine.UIScene;
+import com.reco1l.andengine.container.UIContainer;
 import com.reco1l.framework.EasingKt;
 import com.osudroid.multiplayer.api.RoomAPI;
 import com.osudroid.data.BeatmapInfo;
@@ -21,18 +22,15 @@ import com.osudroid.data.DatabaseManager;
 import com.reco1l.andengine.sprite.UIAnimatedSprite;
 import com.reco1l.andengine.sprite.UISprite;
 import com.osudroid.multiplayer.Multiplayer;
-import com.osudroid.multiplayer.RoomScene;
 
 import com.osudroid.ui.v2.modmenu.ModMenu;
 import com.rian.osu.GameMode;
 import com.rian.osu.beatmap.parser.BeatmapParser;
 import com.rian.osu.difficulty.BeatmapDifficultyCalculator;
 import com.rian.osu.math.Precision;
-import com.rian.osu.mods.LegacyModConverter;
 import com.rian.osu.mods.ModDifficultyAdjust;
 import com.rian.osu.mods.ModNightCore;
 import com.rian.osu.mods.ModPrecise;
-import com.rian.osu.mods.ModReplayV6;
 import com.rian.osu.utils.LRUCache;
 import com.rian.osu.utils.ModUtils;
 
@@ -79,7 +77,6 @@ import ru.nsu.ccfit.zuev.osu.online.OnlineManager;
 import ru.nsu.ccfit.zuev.osu.online.OnlineManager.OnlineManagerException;
 import ru.nsu.ccfit.zuev.osu.online.OnlinePanel;
 import ru.nsu.ccfit.zuev.osu.online.OnlineScoring;
-import ru.nsu.ccfit.zuev.osu.scoring.BeatmapLeaderboardScoringMode;
 import ru.nsu.ccfit.zuev.osu.scoring.ScoringScene;
 import ru.nsu.ccfit.zuev.osu.scoring.StatisticV2;
 import ru.nsu.ccfit.zuev.skins.OsuSkin;
@@ -88,7 +85,7 @@ import ru.nsu.ccfit.zuev.skins.SkinLayout;
 public class SongMenu implements IUpdateHandler, MenuItemListener,
         IScrollBarListener {
     public UIScene scene;
-    public Entity frontLayer = new Entity();
+    public UIContainer frontLayer = new UIContainer();
     SortOrder sortOrder = SortOrder.Title;
     private Engine engine;
     public GameScene game;
@@ -183,7 +180,7 @@ public class SongMenu implements IUpdateHandler, MenuItemListener,
     }
 
     public void reload() {
-        frontLayer = new Entity();
+        frontLayer = new UIContainer();
         backLayer = new Entity();
         scene.unregisterUpdateHandler(this);
         scene.setTouchAreaBindingEnabled(false);
@@ -207,6 +204,7 @@ public class SongMenu implements IUpdateHandler, MenuItemListener,
 
         scene.attachChild(backLayer);
         scene.attachChild(frontLayer);
+        scene.registerTouchArea(frontLayer);
 
         final TextureRegion tex = ResourceManager.getInstance().getTexture("menu-background");
         float height = tex.getHeight();
@@ -353,6 +351,7 @@ public class SongMenu implements IUpdateHandler, MenuItemListener,
                     scaleWhenHold = layoutBackButton.property.optBoolean("scaleWhenHold", true);
                 }
 
+                setScaleCenter(0f, 1f); // Bottom left corner
                 setSize(getWidth(), getHeight());
             }
 
@@ -629,6 +628,8 @@ public class SongMenu implements IUpdateHandler, MenuItemListener,
             }
         };
 
+        float paddingBottom = Multiplayer.isConnected() ? Multiplayer.roomScene.getChat().getButtonHeight() : 0f;
+
         if (modSelection != null)
             modSelection.setScale(1.5f);
 
@@ -640,14 +641,14 @@ public class SongMenu implements IUpdateHandler, MenuItemListener,
         if (isNewLayout && layoutBackButton != null) {
             layoutBackButton.apply(backButton);
         } else {
-            backButton.setPosition(0, Config.getRES_HEIGHT() - backButton.getHeightScaled());
+            backButton.setPosition(0, Config.getRES_HEIGHT() - backButton.getHeightScaled() - paddingBottom);
         }
 
         if (modSelection != null) {
             if (isNewLayout && layoutMods != null) {
                 layoutMods.apply(modSelection, backButton);
             } else {
-                modSelection.setPosition(backButton.getX() + backButton.getWidthScaled(), Config.getRES_HEIGHT() - modSelection.getHeightScaled());
+                modSelection.setPosition(backButton.getX() + backButton.getWidthScaled(), Config.getRES_HEIGHT() - modSelection.getHeightScaled() - paddingBottom);
             }
         }
 
@@ -655,13 +656,13 @@ public class SongMenu implements IUpdateHandler, MenuItemListener,
             layoutOptions.apply(optionSelection, modSelection != null ? modSelection : backButton);
         } else {
             var prevButton = modSelection != null ? modSelection : backButton;
-            optionSelection.setPosition(prevButton.getX() + prevButton.getWidthScaled(), Config.getRES_HEIGHT() - optionSelection.getHeightScaled());
+            optionSelection.setPosition(prevButton.getX() + prevButton.getWidthScaled(), Config.getRES_HEIGHT() - optionSelection.getHeightScaled() - paddingBottom);
         }
 
         if (isNewLayout && layoutRandom != null) {
             layoutRandom.apply(randomMap, optionSelection);
         } else {
-            randomMap.setPosition(optionSelection.getX() + optionSelection.getWidthScaled(), Config.getRES_HEIGHT() - randomMap.getHeightScaled());
+            randomMap.setPosition(optionSelection.getX() + optionSelection.getWidthScaled(), Config.getRES_HEIGHT() - randomMap.getHeightScaled() - paddingBottom);
         }
 
         frontLayer.attachChild(backButton);
@@ -680,7 +681,7 @@ public class SongMenu implements IUpdateHandler, MenuItemListener,
         if (OnlineScoring.getInstance().createSecondPanel() != null) {
             OnlinePanel panel = OnlineScoring.getInstance().getSecondPanel();
             panel.detachSelf();
-            panel.setPosition(randomMap.getX() + randomMap.getWidthScaled() + 20, Config.getRES_HEIGHT() - 110);
+            panel.setPosition(randomMap.getX() + randomMap.getWidthScaled() + 20, Config.getRES_HEIGHT() - 110 - paddingBottom);
             OnlineScoring.getInstance().loadAvatar(false);
             frontLayer.attachChild(panel);
 
@@ -709,15 +710,10 @@ public class SongMenu implements IUpdateHandler, MenuItemListener,
 
     public void toggleScoringSwitcher() {
         if (board.isShowOnlineScores()) {
-            switch (Config.getBeatmapLeaderboardScoringMode()) {
-                case SCORE -> Config.setBeatmapLeaderboardScoringMode(BeatmapLeaderboardScoringMode.PP);
-                case PP -> board.setShowOnlineScores(false);
-            }
-
+            board.setShowOnlineScores(false);
             board.init(selectedBeatmap);
         } else if (OnlineManager.getInstance().isStayOnline()) {
             board.setShowOnlineScores(true);
-            Config.setBeatmapLeaderboardScoringMode(BeatmapLeaderboardScoringMode.SCORE);
             board.init(selectedBeatmap);
         }
 
@@ -915,7 +911,7 @@ public class SongMenu implements IUpdateHandler, MenuItemListener,
     }
 
     @SuppressLint("SimpleDateFormat")
-    public void changeDimensionInfo(BeatmapInfo beatmapInfo) {
+    public synchronized void changeDimensionInfo(BeatmapInfo beatmapInfo) {
         if (beatmapInfo == null) {
             return;
         }
@@ -1014,7 +1010,7 @@ public class SongMenu implements IUpdateHandler, MenuItemListener,
         }
     }
 
-    public void updateInfo(BeatmapInfo beatmapInfo) {
+    public synchronized void updateInfo(BeatmapInfo beatmapInfo) {
         if (beatmapInfo == null) {
             return;
         }
@@ -1181,7 +1177,7 @@ public class SongMenu implements IUpdateHandler, MenuItemListener,
         }
     }
 
-    public void openScore(final int id, boolean showOnline, final String playerName) {
+    public void openScore(final int id, boolean showOnline, final String playerName, final String hash) {
         var difficulty = selectedBeatmap.getBeatmapDifficulty();
 
         if (showOnline) {
@@ -1193,7 +1189,7 @@ public class SongMenu implements IUpdateHandler, MenuItemListener,
 
             Execution.async(() -> {
                 try {
-                    String scorePack = OnlineManager.getInstance().getScorePack(id);
+                    String scorePack = OnlineManager.getInstance().getScorePack(id, hash);
                     String[] params = scorePack.split("\\s+");
 
                     if (params.length < 11) return;
@@ -1201,7 +1197,7 @@ public class SongMenu implements IUpdateHandler, MenuItemListener,
                     StatisticV2 stat = new StatisticV2(params, difficulty);
 
                     stat.setPlayerName(playerName);
-                    scoreScene.load(stat, null, null, OnlineManager.getReplayURL(id), null, selectedBeatmap);
+                    scoreScene.load(stat, null, null, OnlineManager.getReplayURL(id, hash), null, selectedBeatmap);
                     engine.setScene(scoreScene.getScene());
                 } catch (Exception e) {
                     Debug.e("Cannot load play info: " + e.getMessage(), e);
@@ -1222,26 +1218,31 @@ public class SongMenu implements IUpdateHandler, MenuItemListener,
 
         try {
             stat = score.toStatisticV2(difficulty);
-        } catch (JSONException e1) {
-            // When this happens, the mods are likely in the old format (that somehow was not converted during
-            // migration). Convert them.
-            var convertedMods = LegacyModConverter.convert(score.getMods());
-
-            // Scores that are using the legacy mods format are guaranteed to use these mods.
-            convertedMods.put(new ModReplayV6());
-
-            score.setMods(convertedMods.serializeMods().toString());
-            DatabaseManager.getScoreInfoTable().updateScore(score);
-
-            try {
-                stat = score.toStatisticV2(difficulty);
-            } catch (JSONException e2) {
-                ToastLogger.showText("Could not open score", true);
-                return;
-            }
+        } catch (JSONException e) {
+            Debug.e("Cannot not open score: " + e.getMessage(), e);
+            ToastLogger.showText("Could not open score", true);
+            return;
         }
 
+        // Since the statistics will be parsed in ScoringScene.load, we take the chance to update the score with its
+        // complete statistics.
+        boolean scoreNeedsUpdate =
+            stat.getSliderHeadHits() == -1 ||
+            stat.getSliderTickHits() == -1 ||
+            stat.getSliderRepeatHits() == -1 ||
+            stat.getSliderEndHits() == -1;
+
         scoreScene.load(stat, null, null, Config.getScorePath() + stat.getReplayFilename(), null, selectedBeatmap);
+
+        if (scoreNeedsUpdate) {
+            score.setSliderHeadHits(stat.getSliderHeadHits() == -1 ? null : stat.getSliderHeadHits());
+            score.setSliderTickHits(stat.getSliderTickHits() == -1 ? null : stat.getSliderTickHits());
+            score.setSliderRepeatHits(stat.getSliderRepeatHits() == -1 ? null : stat.getSliderRepeatHits());
+            score.setSliderEndHits(stat.getSliderEndHits() == -1 ? null : stat.getSliderEndHits());
+
+            DatabaseManager.getScoreInfoTable().updateScore(score);
+        }
+
         engine.setScene(scoreScene.getScene());
     }
 
@@ -1262,7 +1263,7 @@ public class SongMenu implements IUpdateHandler, MenuItemListener,
                 resetMultiplayerRoomBeatmap();
             }
 
-            RoomScene.INSTANCE.show();
+            Multiplayer.roomScene.show();
             return;
         }
 
@@ -1277,7 +1278,7 @@ public class SongMenu implements IUpdateHandler, MenuItemListener,
         }
 
         // Locking host from change beatmap before the server responses to beatmapChange
-        RoomScene.isWaitingForBeatmapChange = true;
+        Multiplayer.roomScene.isWaitingForBeatmapChange = true;
 
         if (!Multiplayer.isConnected()) {
             return;
@@ -1305,7 +1306,7 @@ public class SongMenu implements IUpdateHandler, MenuItemListener,
         }
 
         // Locking host from change beatmap before the server responses to beatmapChange
-        RoomScene.isWaitingForBeatmapChange = true;
+        Multiplayer.roomScene.isWaitingForBeatmapChange = true;
 
         if (!Multiplayer.isConnected()) {
             return;
@@ -1638,12 +1639,7 @@ public class SongMenu implements IUpdateHandler, MenuItemListener,
             return;
         }
 
-        var textureName = "ranking_enabled_" + switch (Config.getBeatmapLeaderboardScoringMode()) {
-            case SCORE -> "score";
-            case PP -> "pp";
-        };
-
-        scoringSwitcher.setTextureRegion(ResourceManager.getInstance().getTexture(textureName));
+        scoringSwitcher.setTextureRegion(ResourceManager.getInstance().getTexture("ranking_enabled"));
 
         cancelMapStatusLoadingJob();
 
@@ -1673,7 +1669,7 @@ public class SongMenu implements IUpdateHandler, MenuItemListener,
                 JobKt.ensureActive(scope.getCoroutineContext());
 
                 if (scoringSwitcher != null) {
-                    scoringSwitcher.setTextureRegion(ResourceManager.getInstance().getTexture(textureName));
+                    scoringSwitcher.setTextureRegion(ResourceManager.getInstance().getTexture("ranking_enabled"));
                 }
             }
         });

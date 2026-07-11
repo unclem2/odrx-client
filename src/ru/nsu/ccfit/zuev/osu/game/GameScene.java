@@ -31,6 +31,7 @@ import com.osudroid.data.DatabaseManager;
 import com.osudroid.ui.v2.hud.elements.HUDLeaderboard;
 import com.osudroid.ui.v2.modmenu.ModIcon;
 import com.osudroid.utils.Execution;
+import com.reco1l.andengine.UIEngine;
 import com.reco1l.andengine.component.ComponentsKt;
 import com.reco1l.andengine.shape.PaintStyle;
 import com.reco1l.andengine.shape.UIBox;
@@ -46,7 +47,6 @@ import com.osudroid.ui.v2.hud.GameplayHUD;
 import com.osudroid.ui.v2.game.SliderTickSprite;
 import com.osudroid.ui.v2.hud.elements.HUDPPCounter;
 import com.osudroid.multiplayer.Multiplayer;
-import com.osudroid.multiplayer.RoomScene;
 
 import com.reco1l.framework.Color4;
 import com.rian.osu.GameMode;
@@ -73,8 +73,8 @@ import com.rian.osu.mods.*;
 import com.rian.osu.ui.FPSCounter;
 import com.rian.osu.utils.ModHashMap;
 import com.rian.osu.utils.ModUtils;
+import com.rian.spectator.SpectatorDataManager;
 
-import org.anddev.andengine.engine.Engine;
 import org.anddev.andengine.engine.camera.Camera;
 import org.anddev.andengine.engine.camera.SmoothCamera;
 import org.anddev.andengine.engine.handler.IUpdateHandler;
@@ -95,6 +95,7 @@ import org.anddev.andengine.entity.text.ChangeableText;
 import org.anddev.andengine.input.touch.TouchEvent;
 import org.anddev.andengine.opengl.texture.region.TextureRegion;
 import org.anddev.andengine.util.Debug;
+import org.jetbrains.annotations.Nullable;
 
 import java.io.File;
 import java.io.FileNotFoundException;
@@ -102,7 +103,6 @@ import java.util.*;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 
-import javax.annotation.Nullable;
 import javax.microedition.khronos.opengles.GL10;
 
 import ru.nsu.ccfit.zuev.audio.Status;
@@ -121,6 +121,7 @@ import ru.nsu.ccfit.zuev.osu.helper.StringTable;
 import ru.nsu.ccfit.zuev.osu.menu.PauseMenu;
 import ru.nsu.ccfit.zuev.osu.menu.ScoreBoardItem;
 import ru.nsu.ccfit.zuev.osu.online.OnlineFileOperator;
+import ru.nsu.ccfit.zuev.osu.online.OnlineManager;
 import ru.nsu.ccfit.zuev.osu.scoring.Replay;
 import ru.nsu.ccfit.zuev.osu.scoring.ResultType;
 import ru.nsu.ccfit.zuev.osu.scoring.ScoringScene;
@@ -131,7 +132,7 @@ import ru.nsu.ccfit.zuev.skins.BeatmapSkinManager;
 
 public class GameScene implements GameObjectListener, IOnSceneTouchListener {
     public static final int CursorCount = 10;
-    private final Engine engine;
+    private final UIEngine engine;
     private Cursor[] cursors = new Cursor[CursorCount];
     public String audioFilePath = null;
     private UIScene scene;
@@ -179,7 +180,6 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
     public int offsetRegs;
     private Rectangle dimRectangle = null;
     private ComboBurst comboBurst;
-    private int failcount = 0;
     private Color4 sliderBorderColor;
     private SliderPath[] sliderPaths = null;
     private LinePath[] sliderRenderPaths = null;
@@ -198,6 +198,7 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
     private ModHashMap lastMods;
     private TimedDifficultyAttributes<DroidDifficultyAttributes>[] droidTimedDifficultyAttributes;
     private TimedDifficultyAttributes<StandardDifficultyAttributes>[] standardTimedDifficultyAttributes;
+    private SpectatorDataManager spectatorDataManager;
 
     // Game
 
@@ -314,7 +315,7 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
     private ScoreBoardItem lastScoreSent = null;
 
 
-    public GameScene(final Engine engine) {
+    public GameScene(final UIEngine engine) {
         this.engine = engine;
         scene = createMainScene();
         bgScene = new UIScene();
@@ -842,6 +843,48 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
         lastMods = mods;
         lastBeatmapInfo = beatmapInfo;
 
+        stat = new StatisticV2();
+        stat.setMod(lastMods);
+        stat.migrateLegacyMods(parsedBeatmap.getDifficulty());
+        stat.calculateModScoreMultiplier(parsedBeatmap);
+        stat.canFail = !stat.getMod().contains(ModNoFail.class)
+                && !stat.getMod().contains(ModRelax.class)
+                && !stat.getMod().contains(ModAutopilot.class)
+                && !stat.getMod().contains(ModAutoplay.class);
+
+        var rawDifficulty = parsedBeatmap.getDifficulty();
+        float multiplier = 1 + Math.min(rawDifficulty.od, 10) / 10f + Math.min(rawDifficulty.hp, 10) / 10f;
+
+        // The maximum CS of osu!droid mapped to osu!standard is ~17.62.
+        multiplier += (Math.min(rawDifficulty.gameplayCS, 17.62f) - 3) / 4f;
+
+        stat.setDiffModifier(multiplier);
+        stat.setBeatmapNoteCount(objects.size());
+        stat.setV1MaxScore(parsedBeatmap.getMaxScore());
+
+        if (!Multiplayer.isMultiplayer && !replaying && OnlineManager.getInstance().isStayOnline() && replay != null) {
+            ArrayList<String> response = null;
+
+            try {
+                response = OnlineManager.getInstance().sendPlaySettings(stat, parsedBeatmap.getMd5());
+            } catch (OnlineManager.OnlineManagerException e) {
+                e.printStackTrace();
+            }
+
+            if (response == null) {
+                ToastLogger.showText(
+                        OnlineManager.getInstance().getFailMessage(),
+                        true
+                );
+
+                return false;
+            }
+        }
+
+        if (Multiplayer.isMultiplayer && Multiplayer.isConnected() && Multiplayer.room != null) {
+            spectatorDataManager = new SpectatorDataManager(this, replay, stat);
+        }
+
         // Resetting variables before starting the game.
         Multiplayer.finalData = null;
         hasFailed = false;
@@ -890,7 +933,6 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
         bgScene.setBackgroundEnabled(false);
         mgScene.setBackgroundEnabled(false);
         fgScene.setBackgroundEnabled(false);
-        failcount = 0;
         mainCursorId = -1;
 
         final String rfile = beatmapInfo != null ? replayFile : this.replayFilePath;
@@ -950,25 +992,6 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
         if (playableBeatmap == null) {
             return;
         }
-
-        stat = new StatisticV2();
-        stat.setMod(lastMods);
-        stat.migrateLegacyMods(parsedBeatmap.getDifficulty());
-        stat.calculateModScoreMultiplier(parsedBeatmap);
-        stat.canFail = !stat.getMod().contains(ModNoFail.class)
-                && !stat.getMod().contains(ModRelax.class)
-                && !stat.getMod().contains(ModAutopilot.class)
-                && !stat.getMod().contains(ModAutoplay.class);
-
-        float difficultyScoreMultiplier = 1 + Math.min(parsedBeatmap.getDifficulty().od, 10) / 10f +
-                Math.min(parsedBeatmap.getDifficulty().hp, 10) / 10f;
-
-        // The maximum CS of osu!droid mapped to osu!standard is ~17.62.
-        difficultyScoreMultiplier += (Math.min(parsedBeatmap.getDifficulty().gameplayCS, 17.62f) - 3) / 4f;
-
-        stat.setDiffModifier(difficultyScoreMultiplier);
-        stat.setBeatmapNoteCount(objects.size());
-        stat.setBeatmapMaxCombo(parsedBeatmap.getMaxCombo());
 
         GameHelper.setHardRock(lastMods.ofType(ModHardRock.class));
         GameHelper.setDoubleTime(lastMods.ofType(ModDoubleTime.class));
@@ -1035,15 +1058,6 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
             }
         }
 
-        skipBtn = null;
-        if (skipTime > 1) {
-            skipBtn = new UIAnimatedSprite("play-skip", true, OsuSkin.get().getAnimationFramerate());
-            skipBtn.setOrigin(Anchor.BottomRight);
-            skipBtn.setPosition(Config.getRES_WIDTH(), Config.getRES_HEIGHT());
-            skipBtn.setAlpha(0.7f);
-            fgScene.attachChild(skipBtn);
-        }
-
         if (Config.isComboburst()) {
             comboBurst = new ComboBurst(Config.getRES_WIDTH(), Config.getRES_HEIGHT());
             comboBurst.attachAll(bgScene);
@@ -1079,7 +1093,7 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
         }
 
         boolean hasUnrankedMod = SmartIterator.wrap(lastMods.values().iterator()).applyFilter(m -> !m.isRanked()).hasNext();
-        if (hasUnrankedMod || Config.isRemoveSliderLock()) {
+        if (hasUnrankedMod) {
             unrankedSprite = new UISprite(ResourceManager.getInstance().getTexture("play-unranked"));
             unrankedSprite.setAnchor(Anchor.TopCenter);
             unrankedSprite.setOrigin(Anchor.Center);
@@ -1087,10 +1101,8 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
             fgScene.attachChild(unrankedSprite);
         }
 
-        if (GameHelper.isFlashlight()){
-            var flashlight = lastMods.ofType(ModFlashlight.class);
-
-            flashlightSprite = new FlashLightEntity(Objects.requireNonNull(flashlight).getFollowDelay());
+        if (GameHelper.isFlashlight()) {
+            flashlightSprite = new FlashLightEntity(GameHelper.getFlashlight());
             fgScene.attachChild(flashlightSprite, 0);
         }
 
@@ -1144,6 +1156,17 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
 
         hud.setEditMode(isHUDEditorMode);
         hud.setSkinData(OsuSkin.get().getHUDSkinData());
+
+        skipBtn = null;
+        if (skipTime > 1) {
+            float paddingBottom = Multiplayer.isConnected() ? Multiplayer.roomScene.getChat().getButtonHeight() : 0f;
+
+            skipBtn = new UIAnimatedSprite("play-skip", true, OsuSkin.get().getAnimationFramerate());
+            skipBtn.setOrigin(Anchor.BottomRight);
+            skipBtn.setPosition(Config.getRES_WIDTH(), Config.getRES_HEIGHT() - paddingBottom);
+            skipBtn.setAlpha(0.7f);
+            hud.attachChild(skipBtn);
+        }
 
         String playname = Config.getOnlineUsername();
 
@@ -1234,8 +1257,9 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
         elapsedTime = Math.min(elapsedTime, firstObjectStartTime - firstObjectTimePreempt - totalOffset);
         initialElapsedTime = elapsedTime;
 
-        if (skipTime <= 1)
-            RoomScene.INSTANCE.getChat().dismiss();
+        if (skipTime <= 1 && Multiplayer.isConnected()) {
+            Multiplayer.roomScene.getChat().hide();
+        }
 
         applyPlayfieldSizeScale();
         applyBackground();
@@ -1257,7 +1281,7 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
         GlobalManager.getInstance().getMainActivity().reapplyWakeLock();
 
         engine.setScene(scene);
-        engine.getCamera().setHUD(hud.getParent());
+        engine.getOverlay().attachChild(hud, 0);
 
         if (isHUDEditorMode) {
             ToastLogger.showText(R.string.hudEditor_back_for_menu, false);
@@ -1275,6 +1299,10 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
     }
 
     private void update(final float dt) {
+        if (!isReadyToStart) {
+            return;
+        }
+
         elapsedTime += dt;
         previousFrameTime = SystemClock.uptimeMillis();
 
@@ -1471,7 +1499,7 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
                     }
 
                     if (Multiplayer.isConnected())
-                        RoomScene.INSTANCE.getChat().show();
+                        Multiplayer.roomScene.getChat().show();
 
                     hud.onBreakStateChange(true);
                     breakPeriods.poll();
@@ -1481,7 +1509,9 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
             if (breakAnimator.isOver()) {
 
                 // Ensure the chat is dismissed if it's still shown
-                RoomScene.INSTANCE.getChat().dismiss();
+                if (Multiplayer.isConnected()) {
+                    Multiplayer.roomScene.getChat().hide();
+                }
 
                 gameStarted = true;
                 hud.onBreakStateChange(false);
@@ -1503,21 +1533,24 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
             }
             stat.changeHp((float) -rate * 0.01f * dt);
 
-            if (stat.getHp() <= 0 && stat.canFail) {
-                if (GameHelper.isEasy() && failcount < 3) {
-                    failcount++;
-                    stat.changeHp(1f);
-                } else {
-                    if (Multiplayer.isMultiplayer) {
-                        if (!hasFailed) {
-                            ToastLogger.showText("You failed but you can continue playing.", false);
-                        }
-                        hasFailed = true;
-                    } else {
-                        gameover();
-                        return;
-                    }
-                }
+            boolean isDeath = Multiplayer.isMultiplayer
+                && stat.getHp() <= 0
+                && !stat.getMod().contains(ModNoFail.class)
+                && !stat.getMod().contains(ModRelax.class)
+                && !stat.getMod().contains(ModAutopilot.class)
+                && !stat.getMod().contains(ModAutoplay.class);
+
+            stat.isAlive = stat.isAlive
+                    // Player is alive - they will only die if HP reaches 0.
+                    ? !isDeath
+                    // Player is not alive - they will only recover if HP reaches 1.
+                    : stat.getHp() == 1f;
+
+            if (isDeath) {
+                if (!hasFailed)
+                    ToastLogger.showText("You have failed, but you can continue playing.", false);
+
+                hasFailed = true;
             }
         }
 
@@ -1719,19 +1752,29 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
             sliderRenderPaths = null;
             String replayPath = null;
             stat.setTime(System.currentTimeMillis());
+
+            byte[] replayData;
+
             if (replay != null && !replaying) {
                 String ctime = String.valueOf(System.currentTimeMillis());
                 replayPath = Config.getCorePath() + "Scores/"
                         + MD5Calculator.getStringMD5(lastBeatmapInfo.getFilename() + ctime)
                         + ctime.substring(0, Math.min(3, ctime.length())) + ".odr";
                 replay.setStat(stat);
-                replay.save(replayPath);
+                replayData = replay.save(replayPath);
+            } else {
+                replayData = null;
             }
+
             resetPlayfieldSizeScale();
             cancelStoryboardLoading();
             cancelVideoLoading();
 
             if (scoringScene != null && !startedFromHUDEditor) {
+                if (spectatorDataManager != null) {
+                    spectatorDataManager.setGameEnded(true);
+                }
+
                 if (replaying)
                     scoringScene.load(scoringScene.getReplayStat(), null, GlobalManager.getInstance().getSongService(), replayPath, null, lastBeatmapInfo);
                 else {
@@ -1742,9 +1785,9 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
                     if (Multiplayer.isConnected())
                     {
                         Multiplayer.log("Match ended, moving to results scene.");
-                        RoomScene.INSTANCE.getChat().show();
+                        Multiplayer.roomScene.getChat().show();
 
-                        Execution.async(() -> Execution.runSafe(() -> RoomAPI.submitFinalScore(stat.toJson())));
+                        Execution.async(() -> Execution.runSafe(() -> RoomAPI.submitFinalScore(stat.toJson(), replayData)));
 
                         ToastLogger.showText("Loading room statistics...", false);
                     }
@@ -1782,7 +1825,9 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
         }
 
         if (elapsedTime > skipTime - 1f && skipBtn != null) {
-            RoomScene.INSTANCE.getChat().dismiss();
+            if (Multiplayer.isConnected()) {
+                Multiplayer.roomScene.getChat().hide();
+            }
             skipBtn.detachSelf();
             skipBtn = null;
         } else if (skipBtn != null) {
@@ -1862,7 +1907,9 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
 
     public void skip(boolean force)
     {
-        RoomScene.INSTANCE.getChat().dismiss();
+        if (Multiplayer.isConnected()) {
+            Multiplayer.roomScene.getChat().hide();
+        }
 
         if (elapsedTime > skipTime - 1f && !force) {
             return;
@@ -1936,7 +1983,9 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
 
         cancelStoryboardLoading();
         cancelVideoLoading();
+        stopSpectatorDataSubmission();
 
+        // osu!stable restarts the song back to preview time when the player is in the last 10 seconds *or* 2% of the beatmap.
         float mSecPassed = elapsedTime * 1000;
         var selectedBeatmap = GlobalManager.getInstance().getSelectedBeatmap();
         var songService = GlobalManager.getInstance().getSongService();
@@ -1996,7 +2045,7 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
 
         if (Multiplayer.isMultiplayer)
         {
-            RoomScene.INSTANCE.show();
+            Multiplayer.roomScene.show();
             return;
         }
         ResourceManager.getInstance().getSound("failsound").stop();
@@ -2032,6 +2081,10 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
             comboWasMissed = true;
             stat.registerHit(0, false, false, incrementCombo);
             if (writeReplay) replay.addObjectScore(objectId, ResultType.MISS);
+            if (spectatorDataManager != null) {
+                spectatorDataManager.addObjectData(objectId);
+                spectatorDataManager.addEvent();
+            }
             if (GameHelper.isPerfect()) {
                 gameover();
 
@@ -2089,6 +2142,11 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
                 stat.registerHit(300, false, false, incrementCombo);
                 scoreName = "hit300";
             }
+        }
+
+        if (spectatorDataManager != null) {
+            spectatorDataManager.addObjectData(objectId);
+            spectatorDataManager.addEvent();
         }
 
         if (endCombo) {
@@ -2197,13 +2255,16 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
                 gameover();
             }
             stat.registerHit(0, true, false);
+            if (spectatorDataManager != null) {
+                spectatorDataManager.addEvent();
+            }
             return;
         }
 
         String scoreName = "hit0";
         switch (score) {
             case 300:
-                scoreName = registerHit(id, 300, endCombo, incrementCombo);
+                scoreName = registerHit(id, 300, endCombo);
                 break;
             case 100:
                 scoreName = registerHit(id, 100, endCombo, incrementCombo);
@@ -2218,12 +2279,18 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
             case 10:
                 scoreName = "sliderpoint10";
                 stat.registerHit(10, false, false);
+                stat.addSliderTickHit();
                 break;
+        }
+
+        if (spectatorDataManager != null) {
+            spectatorDataManager.addEvent();
         }
 
         if (score > 10) {
             switch (type) {
                 case GameObjectListener.SLIDER_START:
+                    stat.addSliderHeadHit();
                     createBurstEffectSliderStart(judgementPos, color);
                     if (GameHelper.isAutoplay()) {
                         hud.onGameplayTouchDown((float) parsedBeatmap.getHitObjects().objects.get(id).startTime / 1000);
@@ -2234,9 +2301,9 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
                     createBurstEffectSliderEnd(judgementPos, color);
                     break;
                 case GameObjectListener.SLIDER_REPEAT:
+                    stat.addSliderRepeatHit();
                     break;
                 default:
-                    stat.addSliderTickHit();
                     createBurstEffect(judgementPos, color);
             }
         }
@@ -2257,6 +2324,9 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
     public void onSpinnerHit(int id, final int score, final boolean endCombo, int totalScore) {
         if (score == 1000) {
             stat.registerHit(score, false, false);
+            if (spectatorDataManager != null) {
+                spectatorDataManager.addEvent();
+            }
             return;
         }
 
@@ -2501,7 +2571,7 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
             {
                 // Room being null can happen when the player disconnects from socket while playing
                 if (Multiplayer.isConnected())
-                    Execution.async(() -> Execution.runSafe(() -> RoomAPI.submitFinalScore(stat.toJson())));
+                    Execution.async(() -> Execution.runSafe(() -> RoomAPI.submitFinalScore(stat.toJson(), null)));
 
                 Multiplayer.log("Player left the match.");
                 quit();
@@ -2536,7 +2606,7 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
         scene.setIgnoreUpdate(true);
 
         final PauseMenu menu = new PauseMenu(engine, this, false);
-        hud.getParent().setChildScene(menu.getScene(), false, true, true);
+        UIEngine.getCurrent().getOverlay().setChildScene(menu.getScene(), false, true, true);
     }
 
     public void gameover() {
@@ -2553,7 +2623,7 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
         if (Multiplayer.isMultiplayer) {
             if (Multiplayer.isConnected()) {
                 Multiplayer.log("Player has lost, moving to room scene.");
-                Execution.async(() -> Execution.runSafe(() -> RoomAPI.submitFinalScore(stat.toJson())));
+                Execution.async(() -> Execution.runSafe(() -> RoomAPI.submitFinalScore(stat.toJson(), null)));
             }
             quit();
             return;
@@ -2664,7 +2734,7 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
                     engine.unregisterUpdateHandler(this);
 
                     PauseMenu menu = new PauseMenu(engine, GameScene.this, true);
-                    hud.getParent().setChildScene(menu.getScene(), false, true, true);
+                    UIEngine.getCurrent().getOverlay().setChildScene(menu.getScene(), false, true, true);
                 }
             }
 
@@ -2680,12 +2750,16 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
         }
 
         scene.setIgnoreUpdate(false);
-        hud.getParent().getChildScene().back();
+        UIEngine.getCurrent().getOverlay().getChildScene().back();
         paused = false;
 
         if (stat.getHp() <= 0 && !stat.getMod().contains(ModNoFail.class)) {
             quit();
             return;
+        }
+
+        if (spectatorDataManager != null) {
+            spectatorDataManager.resumeTimer((long) (elapsedTime % 5) * 1000);
         }
 
         if (video != null && videoStarted) {
@@ -3191,5 +3265,14 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
 
         camera.setZoomFactorDirect(1f);
         camera.setCenterDirect(Config.getRES_WIDTH() / 2f, Config.getRES_HEIGHT() / 2f);
+    }
+
+    public void stopSpectatorDataSubmission() {
+        if (spectatorDataManager == null) {
+            return;
+        }
+
+        spectatorDataManager.pauseTimer();
+        spectatorDataManager = null;
     }
 }

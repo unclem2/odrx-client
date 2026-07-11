@@ -5,7 +5,6 @@ import android.net.Uri;
 
 import com.google.android.material.snackbar.Snackbar;
 import com.osudroid.data.BeatmapInfo;
-import com.osudroid.multiplayer.RoomScene;
 import com.osudroid.utils.Execution;
 import com.rian.osu.ui.SendingPanel;
 
@@ -70,8 +69,6 @@ public class OnlineScoring {
         panel.setInfo();
         if (secondPanel != null)
             secondPanel.setInfo();
-
-        RoomScene.updateOnlinePanel();
     }
 
     public void updatePanelAvatars() {
@@ -80,8 +77,6 @@ public class OnlineScoring {
         panel.setAvatar(texname);
         if (secondPanel != null)
             secondPanel.setAvatar(texname);
-
-        RoomScene.updateOnlinePanel();
     }
 
     public void login() {
@@ -167,16 +162,16 @@ public class OnlineScoring {
                         success = false;
                     }
 
-                    if (OnlineManager.getInstance().getFailMessage().length() > 0) {
-                        ToastLogger.showText(OnlineManager.getInstance().getFailMessage(), true);
-                        if (OnlineManager.getInstance().getFailMessage().equals("Invalid record data"))
-                            i = attemptCount;
-                    } else if (success) {
-                        updatePanels();
-                        OnlineManager mgr = OnlineManager.getInstance();
-                        panel.show(mgr.getMapRank(), mgr.getRank(), mgr.getScore(), mgr.getAccuracy(), mgr.getPP());
-                        break;
-                    }
+                        if (OnlineManager.getInstance().getFailMessage().length() > 0) {
+                            ToastLogger.showText(OnlineManager.getInstance().getFailMessage(), true);
+                            if (OnlineManager.getInstance().getFailMessage().equals("Invalid record data"))
+                                i = attemptCount;
+                        } else if (success) {
+                            updatePanels();
+                            OnlineManager mgr = OnlineManager.getInstance();
+                            panel.show(mgr.getRank(), mgr.getScore(), mgr.getAccuracy(), mgr.getPP());
+                            break;
+                        }
 
                     try {
                         Thread.sleep(5000);

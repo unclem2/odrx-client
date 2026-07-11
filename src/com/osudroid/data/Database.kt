@@ -69,7 +69,7 @@ object DatabaseManager {
      */
     @JvmStatic
     val databasePath: String
-        get() = "${Config.getCorePath()}databases/room-${BuildConfig.BUILD_TYPE}.db"
+        get() = "${Config.getCorePath()}databases/room-tournament-${BuildConfig.BUILD_TYPE}.db"
 
     private lateinit var database: DroidDatabase
 
@@ -204,7 +204,9 @@ object DatabaseManager {
                                     hit50 = it.getInt(it.getColumnIndexOrThrow("h50")),
                                     misses = it.getInt(it.getColumnIndexOrThrow("misses")),
                                     time = it.getLong(it.getColumnIndexOrThrow("time")),
+                                    sliderHeadHits = null,
                                     sliderTickHits = null,
+                                    sliderRepeatHits = null,
                                     sliderEndHits = null
                                 )
 
@@ -235,7 +237,7 @@ object DatabaseManager {
 }
 
 @Database(
-    version = 3,
+    version = 4,
     entities = [
         BeatmapInfo::class,
         BeatmapOptions::class,
