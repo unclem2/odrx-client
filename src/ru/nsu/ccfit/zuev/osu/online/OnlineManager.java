@@ -26,11 +26,11 @@ import ru.nsu.ccfit.zuev.osu.online.PostBuilder.RequestException;
 import ru.nsu.ccfit.zuev.osu.scoring.StatisticV2;
 
 public class OnlineManager {
-    public static final String hostname = "droidpp.osudroid.moe";
-    public static final String endpoint = "https://" + hostname + "/api/droid/";
+    public static final String hostname = "v4rx.me";
+    public static final String endpoint = "https://" + hostname + "/api/";
     public static final String updateEndpoint = endpoint + "update";
-    public static final String defaultAvatarURL = "https://osudroid.moe/user/avatar/0.png";
-    private static final String onlineVersion = "48";
+    public static final String defaultAvatarURL = "https://v4rx.me/user/avatar/0.png";
+    private static final String onlineVersion = "9";
 
     public static final OkHttpClient client = new OkHttpClient();
 
@@ -127,7 +127,7 @@ public class OnlineManager {
                 ));
         post.addParam("version", onlineVersion);
 
-        ArrayList<String> response = sendRequest(post, endpoint + "login");
+        ArrayList<String> response = sendRequest(post, endpoint + "login.php/");
 
         if (response == null) {
             return false;

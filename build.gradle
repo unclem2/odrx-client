@@ -99,26 +99,26 @@ android {
 
     buildTypes {
         debug {
-            resValue "string", "app_name", "osu!droid-tournament-debug"
-            applicationIdSuffix '.tournament.debug'
+            resValue "string", "app_name", "osu!droid-relax-tournament-debug"
+            applicationIdSuffix '.relax.tournament.debug'
         }
 
         release {
-            resValue "string", "app_name", "osu!droid-tournament"
+            resValue "string", "app_name", "osu!droid-relax-tournament"
 //            minifyEnabled true
 //            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard.cfg', 'proguard-kotlin.pro'
             signingConfig signingConfigs.release
-            applicationIdSuffix '.tournament'
+            applicationIdSuffix '.relax.tournament'
         }
 
         pre_release {
             matchingFallbacks = ['release']
-            resValue "string", "app_name", "osu!droid-tournament"
+            resValue "string", "app_name", "osu!droid-relax-tournament"
 //            minifyEnabled true
 //            debuggable true
 //            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard.cfg', 'proguard-kotlin.pro'
             signingConfig signingConfigs.release
-            applicationIdSuffix '.tournament'
+            applicationIdSuffix '.relax.tournament'
         }
     }
 
@@ -142,6 +142,10 @@ android {
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = '17'
     }
 
     useLibrary 'org.apache.http.legacy'

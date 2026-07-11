@@ -18,7 +18,7 @@ object LobbyAPI {
     /**
      * The hostname.
      */
-    const val HOST = "https://droidpp.osudroid.moe/api/tournament"
+    const val HOST = "https://v4rx.me/multi"
 
     /**
      * The invite link host.

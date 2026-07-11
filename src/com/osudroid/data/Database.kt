@@ -69,7 +69,8 @@ object DatabaseManager {
      */
     @JvmStatic
     val databasePath: String
-        get() = "${Config.getCorePath()}databases/room-tournament-${BuildConfig.BUILD_TYPE}.db"
+        get() = "${Config.getCorePath()}databases/" +
+                "room-relax-tournament-${BuildConfig.BUILD_TYPE}.db"
 
     private lateinit var database: DroidDatabase
 

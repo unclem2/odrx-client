@@ -25,6 +25,7 @@
         android:allowAudioPlaybackCapture="true"
         android:requestLegacyExternalStorage="true"
         android:resizeableActivity="false"
+        android:usesCleartextTraffic="true"
         android:name="ru.nsu.ccfit.zuev.audio.serviceAudio.SaveServiceObject"
         tools:ignore="UnusedAttribute">
         <service android:name="ru.nsu.ccfit.zuev.audio.serviceAudio.SongService" android:exported="false"/>
