@@ -39,6 +39,7 @@ proguard_logs/
 .kotlin/
 
 release.jks
+google-services.json
 
 # Claude configuration and history
 .claude/settings.local.json

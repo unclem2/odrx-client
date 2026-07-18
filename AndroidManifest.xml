@@ -24,6 +24,7 @@
         android:appCategory="game"
         android:allowAudioPlaybackCapture="true"
         android:requestLegacyExternalStorage="true"
+        android:usesCleartextTraffic="true"
         android:resizeableActivity="false"
         android:name="ru.nsu.ccfit.zuev.audio.serviceAudio.SaveServiceObject"
         tools:ignore="UnusedAttribute">

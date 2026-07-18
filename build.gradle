@@ -103,17 +103,18 @@ android {
 
     buildTypes {
         debug {
-            resValue "string", "app_name", "osu!droid-debug"
-            applicationIdSuffix '.debug'
+            resValue "string", "app_name", "osu!droid-relax-debug"
+            applicationIdSuffix '.relax.debug'
             firebaseCrashlytics {
                 mappingFileUploadEnabled false
             }
         }
 
         release {
-            resValue "string", "app_name", "osu!droid"
+            resValue "string", "app_name", "osu!droid-relax"
 //            minifyEnabled true
 //            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard.cfg', 'proguard-kotlin.pro'
+            applicationIdSuffix '.relax'
             signingConfig signingConfigs.release
             firebaseCrashlytics {
                 mappingFileUploadEnabled false
@@ -122,10 +123,11 @@ android {
 
         pre_release {
             matchingFallbacks = ['release']
-            resValue "string", "app_name", "osu!droid"
+            resValue "string", "app_name", "osu!droid-relax-pre"
 //            minifyEnabled true
 //            debuggable true
 //            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard.cfg', 'proguard-kotlin.pro'
+            applicationIdSuffix '.relax'
             signingConfig signingConfigs.release
             firebaseCrashlytics {
                 mappingFileUploadEnabled false
