@@ -97,39 +97,37 @@ public abstract class GameObject {
         // For Relax, we need to check two cases:
         // 1. If a cursor flows over the object when it is hittable.
         // 2. If a cursor is pressed while it is over the object when it is hittable.
+        // Notelock is removed: all events are checked independently per object.
         if (GameHelper.isRelax()) {
             for (int i = 0; i < cursorCount; i++) {
                 var cursor = listener.getCursor(i);
                 var events = cursor.events;
                 int size = events.size();
 
-                if (size > 0) {
-                    while (cursor.latestProcessedEventIndex < size) {
-                        var event = events.get(cursor.latestProcessedEventIndex++);
+                for (int k = 0; k < size; k++) {
+                    var event = events.get(k);
 
-                        if (event.isActionUp()) {
-                            continue;
-                        }
-
-                        boolean isHit = isHit(hitObject, event);
-
-                        // Case 1
-                        if (event.isActionDown() && isHit && canHit(event)) {
-                            return event;
-                        }
-
-                        // Case 2
-                        if (objectElapsedTime >= 0 && isHit) {
-                            return event;
-                        }
+                    if (event.isActionUp()) {
+                        continue;
                     }
-                } else {
-                    // If there are no new events, check the latest event.
-                    // Not passing ACTION_DOWN or ACTION_MOVE here to avoid array allocation.
+
+                    boolean isHit = isHit(hitObject, event);
+
+                    // Case 1
+                    if (event.isActionDown() && isHit && canHit(event)) {
+                        return event;
+                    }
+
+                    // Case 2
+                    if (objectElapsedTime >= 0 && isHit) {
+                        return event;
+                    }
+                }
+
+                // If there are no events, check the latest event.
+                if (size == 0) {
                     var event = cursor.getLatestEvent();
 
-                    // Only consider case 2 in this scenario, as the event should logically be marked as a move event
-                    // even if it's a down event (no new events mean the user keeps pressing on the same spot).
                     if (event != null && !event.isActionUp() && objectElapsedTime >= 0 && isHit(hitObject, event)) {
                         return event;
                     }
