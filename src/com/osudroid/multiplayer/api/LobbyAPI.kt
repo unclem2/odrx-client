@@ -18,7 +18,7 @@ object LobbyAPI {
     /**
      * The hostname.
      */
-    const val HOST = "https://v4rx.me/multi"
+    const val HOST = "https://multi.v4rx.me/multi"
 
     /**
      * The invite link host.
@@ -42,13 +42,13 @@ object LobbyAPI {
      */
     fun getRooms(query: String?, uid: Long, sessionId: String, sign: String?): List<Room> {
 
-        if (BuildSettings.MOCK_MULTIPLAYER) {
-            return listOf(
-                MockRoom(),
-                MockRoom(),
-                MockRoom()
-            )
-        }
+//        if (BuildSettings.MOCK_MULTIPLAYER) {
+//            return listOf(
+//                MockRoom(),
+//                MockRoom(),
+//                MockRoom()
+//            )
+//        }
 
         JsonArrayRequest("$HOST$GET_ROOMS").use {
 
@@ -94,9 +94,9 @@ object LobbyAPI {
      */
     fun createRoom(name: String, beatmap: RoomBeatmap?, hostUID: Long, sessionId: String, sign: String?, password: String? = null, maxPlayers: Int = 8): Long {
 
-        if (BuildSettings.MOCK_MULTIPLAYER) {
-            return 1
-        }
+//        if (BuildSettings.MOCK_MULTIPLAYER) {
+//            return 1
+//        }
 
         JsonObjectRequest("$HOST$CREATE_ROOM").use { request ->
 

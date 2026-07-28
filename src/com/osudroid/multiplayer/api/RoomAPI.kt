@@ -331,7 +331,6 @@ object RoomAPI {
 
         socket = if (BuildSettings.MOCK_MULTIPLAYER) MockSocket(userId) else IO.socket(url, IO.Options().also {
             it.auth = auth
-            it.path = "/api/tournament/socket.io"
 
             // Explicitly not allow the socket to reconnect as we are using our own
             // reconnection system (the socket.io Java client does not support connection

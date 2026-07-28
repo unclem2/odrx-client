@@ -102,6 +102,7 @@ class ModDifficultyAdjust @JvmOverloads constructor(
     override val description = "Override a beatmap's difficulty settings."
     override val type = ModType.Conversion
     override val requiresConfiguration = true
+    override val isUserPlayable = false
 
     // This mod has a different default than others as the default value of settings change based on the beatmap.
     override val usesDefaultSettings
