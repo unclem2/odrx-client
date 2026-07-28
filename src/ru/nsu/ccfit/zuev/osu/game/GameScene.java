@@ -2416,6 +2416,11 @@ public class GameScene implements GameObjectListener, IOnSceneTouchListener {
 
     @Override
     public boolean isObjectHittable(GameObject object) {
+        // Notelock is removed in Relax: all objects are hittable regardless of order.
+        if (GameHelper.isRelax()) {
+            return true;
+        }
+
         return object == judgeableObject;
     }
 
