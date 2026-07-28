@@ -173,6 +173,9 @@ class RoomChat : UILinearContainer() {
     }
 
     fun hide() {
+        if (::input.isInitialized) {
+            input.blur()
+        }
         detachSelf()
     }
 
@@ -189,6 +192,11 @@ class RoomChat : UILinearContainer() {
     fun collapse() {
         if (isExpanded) {
             isExpanded = false
+
+            if (::input.isInitialized) {
+                input.blur()
+            }
+
             body.apply {
                 clearModifiers(ModifierType.SizeY)
                 sizeToY(0f, 0.4f).eased(Easing.OutExpo)

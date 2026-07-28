@@ -187,6 +187,7 @@ class UIEngine(val context: Activity, options: EngineOptions) : Engine(options) 
 
 
     override fun setScene(scene: Scene?) {
+        (focusedEntity as? IFocusable)?.blur()
         mScene?.onDetached()
         super.setScene(scene)
         scene?.onAttached()
