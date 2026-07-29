@@ -436,31 +436,37 @@ open class UITextInput(initialValue: String) : UIControl<String>(initialValue), 
         fun attach(input: UITextInput) {
             currentInput = input
             val context = UIEngine.current.context
-            val edit = getImeEditText(context)
 
-            isUpdatingFromIme = true
-            edit.setText(input.value)
-            edit.setSelection(input.caretPosition.coerceIn(0, input.value.length))
-            edit.inputType = input.inputType
-            edit.filters = if (input.maxCharacters > 0) {
-                arrayOf(InputFilter.LengthFilter(input.maxCharacters))
-            } else {
-                arrayOf()
+            mainThread {
+                val edit = getImeEditText(context)
+
+                isUpdatingFromIme = true
+                edit.setText(input.value)
+                edit.setSelection(input.caretPosition.coerceIn(0, input.value.length))
+                edit.inputType = input.inputType
+                edit.filters = if (input.maxCharacters > 0) {
+                    arrayOf(InputFilter.LengthFilter(input.maxCharacters))
+                } else {
+                    arrayOf()
+                }
+                isUpdatingFromIme = false
+
+                edit.requestFocus()
+
+                val imm = context.getSystemService<InputMethodManager>()
+                imm?.showSoftInput(edit, InputMethodManager.SHOW_IMPLICIT)
             }
-            isUpdatingFromIme = false
-
-            edit.requestFocus()
-
-            val imm = context.getSystemService<InputMethodManager>()
-            imm?.showSoftInput(edit, InputMethodManager.SHOW_IMPLICIT)
         }
 
         fun detach() {
             currentInput = null
-            imeEditText?.let { edit ->
-                edit.clearFocus()
-                val imm = edit.context.getSystemService<InputMethodManager>()
-                imm?.hideSoftInputFromWindow(edit.windowToken, 0)
+
+            mainThread {
+                imeEditText?.let { edit ->
+                    edit.clearFocus()
+                    val imm = edit.context.getSystemService<InputMethodManager>()
+                    imm?.hideSoftInputFromWindow(edit.windowToken, 0)
+                }
             }
         }
 
