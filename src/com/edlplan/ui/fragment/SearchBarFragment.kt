@@ -120,10 +120,8 @@ class SearchBarFragment : BaseFragment(), IFilterMenu {
     }
 
     override fun dismiss() {
-        playEndAnim {
-            hideKeyboard()
-            super.dismiss()
-        }
+        hideKeyboard()
+        playEndAnim { super.dismiss() }
         saveState(savedFolder, savedFavOnly, savedFilter)
     }
 
@@ -131,6 +129,9 @@ class SearchBarFragment : BaseFragment(), IFilterMenu {
         if (::filter.isInitialized) {
             filter.clearFocus()
             context?.getSystemService<InputMethodManager>()?.hideSoftInputFromWindow(filter.windowToken, 0)
+
+            filter.isFocusable = false
+            filter.isFocusableInTouchMode = false
         }
     }
 
