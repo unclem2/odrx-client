@@ -337,7 +337,9 @@ open class UITextInput(initialValue: String) : UIControl<String>(initialValue), 
                 notifyInputError()
                 return
             }
+            ImeBridge.setUpdating(true)
             value = text
+            ImeBridge.setUpdating(false)
         }
     }
 
@@ -472,12 +474,18 @@ open class UITextInput(initialValue: String) : UIControl<String>(initialValue), 
 
         fun isUpdating() = isUpdatingFromIme
 
+        fun setUpdating(updating: Boolean) {
+            isUpdatingFromIme = updating
+        }
+
         fun syncText(text: String, position: Int) {
-            imeEditText?.let { edit ->
-                isUpdatingFromIme = true
-                edit.setText(text)
-                edit.setSelection(position.coerceIn(0, text.length))
-                isUpdatingFromIme = false
+            mainThread {
+                imeEditText?.let { edit ->
+                    isUpdatingFromIme = true
+                    edit.setText(text)
+                    edit.setSelection(position.coerceIn(0, text.length))
+                    isUpdatingFromIme = false
+                }
             }
         }
     }
