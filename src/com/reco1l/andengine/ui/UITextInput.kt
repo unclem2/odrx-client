@@ -164,6 +164,8 @@ open class UITextInput(initialValue: String) : UIControl<String>(initialValue), 
             if (!isFocused) {
                 focus()
             } else {
+                setKeyboardVisibility(true)
+
                 val x = localX - padding.left
 
                 // Find the closest letter position to the touch
