@@ -108,6 +108,7 @@ class SearchBarFragment : BaseFragment(), IFilterMenu {
 
     override fun onDetach() {
         super.onDetach()
+        hideKeyboard()
         menu?.scene?.postRunnable { menu?.loadFilter(this) }
         menu = null
         scene = null
@@ -119,8 +120,18 @@ class SearchBarFragment : BaseFragment(), IFilterMenu {
     }
 
     override fun dismiss() {
-        playEndAnim { super.dismiss() }
+        playEndAnim {
+            hideKeyboard()
+            super.dismiss()
+        }
         saveState(savedFolder, savedFavOnly, savedFilter)
+    }
+
+    private fun hideKeyboard() {
+        if (::filter.isInitialized) {
+            filter.clearFocus()
+            context?.getSystemService<InputMethodManager>()?.hideSoftInputFromWindow(filter.windowToken, 0)
+        }
     }
 
     private fun reloadViewData() {
