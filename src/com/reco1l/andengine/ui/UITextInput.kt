@@ -1,10 +1,18 @@
 package com.reco1l.andengine.ui
 
+import android.app.Activity
+import android.content.Context
+import android.graphics.Color
+import android.text.Editable
+import android.text.InputFilter
+import android.text.InputType
+import android.text.TextWatcher
 import android.view.*
 import android.view.KeyEvent.*
+import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
+import android.widget.EditText
 import androidx.core.content.*
-import androidx.core.view.*
 import com.osudroid.utils.mainThread
 import com.reco1l.andengine.*
 import com.reco1l.andengine.component.*
@@ -64,6 +72,12 @@ open class UITextInput(initialValue: String) : UIControl<String>(initialValue), 
     var maxCharacters = 0
 
     /**
+     * The Android input type used for the soft keyboard.
+     */
+    open val inputType: Int
+        get() = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_NORMAL
+
+    /**
      * The font used to render the text.
      */
     var font by textEntity::font
@@ -102,7 +116,7 @@ open class UITextInput(initialValue: String) : UIControl<String>(initialValue), 
     }
 
     override fun onFocus() {
-        setKeyboardVisibility(true)
+        ImeBridge.attach(this)
         caret.isVisible = true
 
         foreground?.clearModifiers(ModifierType.Color)
@@ -111,30 +125,11 @@ open class UITextInput(initialValue: String) : UIControl<String>(initialValue), 
     }
 
     override fun onBlur() {
-        setKeyboardVisibility(false)
+        ImeBridge.detach()
         caret.isVisible = false
 
         foreground?.clearModifiers(ModifierType.Color)
         foreground?.colorTo(Theme.current.accentColor * 0.4f, 0.1f)
-
-        ViewCompat.setOnApplyWindowInsetsListener(UIEngine.current.context.window.decorView, null)
-    }
-
-    @Suppress("DEPRECATION")
-    private fun setKeyboardVisibility(value: Boolean) = mainThread {
-
-        val imm = UIEngine.current.context.getSystemService<InputMethodManager>()
-            ?: throw NullPointerException("InputMethodManager is null")
-
-        val windowInsets = ViewCompat.getRootWindowInsets(UIEngine.current.context.window.decorView)
-        val keyboardHeight = windowInsets!!.getInsets(WindowInsetsCompat.Type.ime()).bottom
-
-        // Tricky prevention from opening the keyboard while it should be closed and vice versa.
-        if (value == (keyboardHeight > 0) || !value == (keyboardHeight == 0)) {
-            return@mainThread
-        }
-
-        imm.toggleSoftInput(if (value) InputMethodManager.SHOW_FORCED else InputMethodManager.HIDE_IMPLICIT_ONLY, 0)
     }
 
 
@@ -164,8 +159,6 @@ open class UITextInput(initialValue: String) : UIControl<String>(initialValue), 
             if (!isFocused) {
                 focus()
             } else {
-                setKeyboardVisibility(true)
-
                 val x = localX - padding.left
 
                 // Find the closest letter position to the touch
@@ -293,6 +286,10 @@ open class UITextInput(initialValue: String) : UIControl<String>(initialValue), 
     override fun onValueChanged() {
         super.onValueChanged()
         updateVisuals()
+
+        if (isFocused && !ImeBridge.isUpdating()) {
+            ImeBridge.syncText(value, caretPosition)
+        }
     }
 
     override fun onKeyPress(keyCode: Int, event: KeyEvent): Boolean = synchronized(value) {
@@ -331,6 +328,152 @@ open class UITextInput(initialValue: String) : UIControl<String>(initialValue), 
         }
 
         return true
+    }
+
+
+    private fun onImeTextChanged(text: String) {
+        if (text != value) {
+            if (text.isNotEmpty() && !isTextValid(text)) {
+                notifyInputError()
+                return
+            }
+            value = text
+        }
+    }
+
+    private fun onImeSelectionChanged(position: Int) {
+        caretPosition = position.coerceIn(0, value.length)
+    }
+
+    private fun onImeConfirm() {
+        if (confirmOnEnter) {
+            blur()
+            onConfirm?.invoke()
+        } else {
+            appendCharacter('\n')
+        }
+    }
+
+    private fun onImeBackPress() {
+        blur()
+    }
+
+
+    companion object ImeBridge {
+
+        private var imeEditText: ImeEditText? = null
+        private var currentInput: UITextInput? = null
+        private var isUpdatingFromIme = false
+        private var previousImeText = ""
+        private var previousImeSelection = 0
+
+        private fun getImeEditText(context: Context): ImeEditText {
+            return imeEditText ?: createImeEditText(context).also { imeEditText = it }
+        }
+
+        private fun createImeEditText(context: Context): ImeEditText {
+            val edit = ImeEditText(context).apply {
+                layoutParams = ViewGroup.LayoutParams(1, 1)
+                setBackgroundColor(Color.TRANSPARENT)
+                isFocusable = true
+                isFocusableInTouchMode = true
+                isClickable = false
+                isLongClickable = false
+
+                onBackPress = { currentInput?.onImeBackPress() }
+
+                addTextChangedListener(object : TextWatcher {
+                    override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {
+                        if (isUpdatingFromIme) return
+                        previousImeText = s?.toString() ?: ""
+                        previousImeSelection = selectionStart
+                    }
+
+                    override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                        if (isUpdatingFromIme) return
+                        val newText = s?.toString() ?: ""
+                        val input = currentInput ?: return
+
+                        if (newText.isNotEmpty() && !input.isTextValid(newText)) {
+                            return
+                        }
+
+                        input.onImeTextChanged(newText)
+                    }
+
+                    override fun afterTextChanged(s: Editable?) {
+                        if (isUpdatingFromIme) return
+                        val text = s?.toString() ?: ""
+                        val input = currentInput ?: return
+
+                        if (text.isNotEmpty() && !input.isTextValid(text)) {
+                            isUpdatingFromIme = true
+                            setText(previousImeText)
+                            setSelection(previousImeSelection.coerceIn(0, previousImeText.length))
+                            isUpdatingFromIme = false
+                            input.notifyInputError()
+                        } else {
+                            input.onImeSelectionChanged(selectionStart)
+                        }
+                    }
+                })
+
+                setOnEditorActionListener { _, actionId, event ->
+                    if (actionId == EditorInfo.IME_ACTION_DONE || event?.keyCode == KeyEvent.KEYCODE_ENTER) {
+                        currentInput?.onImeConfirm()
+                        true
+                    } else {
+                        false
+                    }
+                }
+            }
+
+            val content = (context as? Activity)?.findViewById<ViewGroup>(android.R.id.content)
+            content?.addView(edit)
+            return edit
+        }
+
+        fun attach(input: UITextInput) {
+            currentInput = input
+            val context = UIEngine.current.context
+            val edit = getImeEditText(context)
+
+            isUpdatingFromIme = true
+            edit.setText(input.value)
+            edit.setSelection(input.caretPosition.coerceIn(0, input.value.length))
+            edit.inputType = input.inputType
+            edit.filters = if (input.maxCharacters > 0) {
+                arrayOf(InputFilter.LengthFilter(input.maxCharacters))
+            } else {
+                arrayOf()
+            }
+            isUpdatingFromIme = false
+
+            edit.requestFocus()
+
+            val imm = context.getSystemService<InputMethodManager>()
+            imm?.showSoftInput(edit, InputMethodManager.SHOW_IMPLICIT)
+        }
+
+        fun detach() {
+            currentInput = null
+            imeEditText?.let { edit ->
+                edit.clearFocus()
+                val imm = edit.context.getSystemService<InputMethodManager>()
+                imm?.hideSoftInputFromWindow(edit.windowToken, 0)
+            }
+        }
+
+        fun isUpdating() = isUpdatingFromIme
+
+        fun syncText(text: String, position: Int) {
+            imeEditText?.let { edit ->
+                isUpdatingFromIme = true
+                edit.setText(text)
+                edit.setSelection(position.coerceIn(0, text.length))
+                isUpdatingFromIme = false
+            }
+        }
     }
 
 }
@@ -390,6 +533,9 @@ class IntegerTextInput(
     minValue: Int? = -Int.MAX_VALUE,
     maxValue: Int? = Int.MAX_VALUE
 ) : RangeConstrainedTextInput<Int>(initialValue, minValue, maxValue) {
+    override val inputType: Int
+        get() = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_SIGNED
+
     override fun isCharacterAllowed(char: Char) = super.isCharacterAllowed(char) && (char.isDigit() || char == '-')
 
     override fun isTextValid(text: String) =
@@ -407,6 +553,9 @@ class FloatTextInput(
     minValue: Float? = -Float.MAX_VALUE,
     maxValue: Float? = Float.MAX_VALUE
 ) : RangeConstrainedTextInput<Float>(initialValue, minValue, maxValue) {
+    override val inputType: Int
+        get() = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_SIGNED or InputType.TYPE_NUMBER_FLAG_DECIMAL
+
     override fun isCharacterAllowed(char: Char) =
         super.isCharacterAllowed(char) && (char.isDigit() || char == '.' || char == '-')
 
@@ -415,4 +564,21 @@ class FloatTextInput(
         super.isTextValid(text) && text.toFloatOrNull() != null
 
     override fun convertValue(value: String) = value.toFloatOrNull()
+}
+
+
+/**
+ * A hidden [EditText] used as the real IME target for [UITextInput].
+ */
+private class ImeEditText(context: Context) : EditText(context) {
+
+    var onBackPress: (() -> Unit)? = null
+
+    override fun onKeyPreIme(keyCode: Int, event: KeyEvent?): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_BACK && event?.action == KeyEvent.ACTION_UP) {
+            onBackPress?.invoke()
+            return true
+        }
+        return super.onKeyPreIme(keyCode, event)
+    }
 }
