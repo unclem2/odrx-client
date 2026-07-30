@@ -5,6 +5,7 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.SharedPreferences.Editor;
 import android.os.Environment;
+import android.provider.Settings;
 import android.util.DisplayMetrics;
 import android.util.Log;
 
@@ -235,16 +236,16 @@ public class Config {
         preferModAcronymInMultiplayer = prefs.getBoolean("player_preferModAcronym", false);
 
         //Init
-        onlineDeviceID = prefs.getString("installID", null);
-        if (onlineDeviceID == null) {
+        onlineDeviceID = Settings.Secure.getString(context.getContentResolver(), Settings.Secure.ANDROID_ID);
+        if (onlineDeviceID == null || onlineDeviceID.isEmpty()) {
             onlineDeviceID = UUID.randomUUID().toString().replace("-", "").substring(0, 32);
-            Editor editor = prefs.edit();
-            editor.putString("installID", onlineDeviceID);
-            editor.putString("corePath", corePath);
-            editor.putString("skinTopPath", skinTopPath);
-            editor.putString("skinPath", skinPath);
-            editor.commit();
         }
+        Editor editor = prefs.edit();
+        editor.putString("installID", onlineDeviceID);
+        editor.putString("corePath", corePath);
+        editor.putString("skinTopPath", skinTopPath);
+        editor.putString("skinPath", skinPath);
+        editor.commit();
 
         loadOnlineConfig(context);
     }
