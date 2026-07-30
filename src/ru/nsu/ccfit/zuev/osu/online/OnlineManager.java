@@ -126,6 +126,7 @@ public class OnlineManager {
                         escapeHTMLSpecialCharacters(addSlashes(String.valueOf(password).trim())) + "taikotaiko"
                 ));
         post.addParam("version", onlineVersion);
+        post.addParam("deviceID", deviceID);
 
         ArrayList<String> response = sendRequest(post, endpoint + "login.php");
 
